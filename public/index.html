@@ -49,12 +49,12 @@
   </script>
 </head>
 
-<body class="bg-ink-50 text-ink-900 font-sans antialiased min-h-screen p-8">
+<body class="bg-ink-50 text-ink-900 font-sans antialiased min-h-screen p-4 sm:p-6 lg:p-8">
 
   <!-- ═══════════════════════════════════════════════════════
        TWO-PANEL DASHBOARD
   ════════════════════════════════════════════════════════ -->
-  <div class="max-w-7xl mx-auto grid grid-cols-2 gap-8">
+  <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
 
     <!-- ┌─────────────────────────────────────────────────┐
          │  LEFT PANEL — Parking Status + Floor Cards      │
@@ -62,7 +62,7 @@
     <div class="flex flex-col gap-6">
 
       <!-- Panel header -->
-      <header class="flex items-center justify-between pb-2">
+      <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2">
         <div class="flex items-center gap-3">
           <!-- Icon chip -->
           <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-xl shrink-0">
@@ -70,13 +70,13 @@
           </div>
           <div>
             <p class="text-xs font-semibold tracking-[0.12em] uppercase text-ink-400">Dashboard</p>
-            <h1 class="text-2xl font-bold tracking-tighter leading-none text-ink-900">Parking Status</h1>
+            <h1 class="text-xl sm:text-2xl font-bold tracking-tighter leading-none text-ink-900">Parking Status</h1>
           </div>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <!-- Live indicator -->
-          <span class="flex items-center gap-1.5 text-xs text-ink-400 font-medium">
+          <span class="flex items-center gap-1.5 text-xs text-ink-400 font-medium mr-1">
             <span class="live-dot inline-block w-2 h-2 rounded-full bg-brand-500"></span>
             Live
           </span>
@@ -85,14 +85,22 @@
             type="datetime-local"
             id="sim-entry-time"
             title="Override Entry Time (Testing)"
-            class="text-xs px-3 py-1.5 rounded-full border border-ink-100 text-ink-400 bg-white focus:outline-none focus:border-brand-400"
+            class="text-xs px-3 py-1.5 rounded-full border border-ink-100 text-ink-400 bg-white focus:outline-none focus:border-brand-400 w-full sm:w-auto"
           />
-          <button
-            id="btn-entry"
-            class="px-5 py-2.5 rounded-full bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold tracking-snug transition-colors"
-          >
-            New Car Entry
-          </button>
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              id="btn-entry"
+              class="flex-1 sm:flex-initial text-center justify-center px-4 sm:px-5 py-2.5 rounded-full bg-brand-500 hover:bg-brand-600 active:scale-95 text-white text-xs sm:text-sm font-semibold tracking-snug transition-all duration-150 shadow-sm whitespace-nowrap"
+            >
+              New Car Entry
+            </button>
+            <a
+              href="/admin.html"
+              class="flex-1 sm:flex-initial text-center justify-center px-4 sm:px-5 py-2.5 rounded-full bg-ink-100 hover:bg-ink-200 active:scale-95 text-ink-700 text-xs sm:text-sm font-semibold tracking-snug transition-all duration-150 whitespace-nowrap"
+            >
+              Admin Login
+            </a>
+          </div>
         </div>
       </header>
 
@@ -112,21 +120,37 @@
     <div class="flex flex-col gap-6">
 
       <!-- Panel header -->
-      <header class="flex items-center justify-between pb-2">
+      <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2">
         <div>
-          <p class="text-xs font-semibold tracking-[0.12em] uppercase text-ink-400">Active</p>
-          <h2 class="text-2xl font-bold tracking-tighter leading-none text-ink-900">Tickets</h2>
+          <p class="text-xs font-semibold tracking-[0.12em] uppercase text-ink-400">Search</p>
+          <h2 class="text-xl sm:text-2xl font-bold tracking-tighter leading-none text-ink-900">Tickets</h2>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 w-full sm:w-auto">
           <!-- Sim exit time — testing helper -->
           <input
             type="datetime-local"
             id="sim-exit-time"
             title="Override Exit Time (Testing)"
-            class="text-xs px-3 py-1.5 rounded-full border border-ink-100 text-ink-400 bg-white focus:outline-none focus:border-brand-400"
+            class="text-xs px-3 py-1.5 rounded-full border border-ink-100 text-ink-400 bg-white focus:outline-none focus:border-brand-400 w-full sm:w-auto"
           />
         </div>
       </header>
+
+      <!-- Search Input -->
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input
+          type="text"
+          id="search-ticket-input"
+          placeholder="Enter Ticket ID"
+          class="flex-1 rounded-full border border-ink-100 px-4 py-2 text-sm font-semibold text-ink-900 placeholder:text-ink-400 focus:outline-none focus:border-brand-400 bg-white"
+        />
+        <button
+          id="btn-search"
+          class="px-5 py-2 rounded-full bg-ink-900 hover:bg-ink-700 active:scale-95 text-white text-sm font-semibold tracking-snug transition-all duration-150"
+        >
+          Search
+        </button>
+      </div>
 
       <!-- Ticket cards — injected by app.js -->
       <div id="tickets-list" class="flex flex-col gap-4"></div>

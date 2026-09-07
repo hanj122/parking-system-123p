@@ -26,7 +26,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnPay            = document.getElementById('btn-pay');
     const btnClose          = document.getElementById('btn-close');
 
+    // Search elements
+    const searchInput       = document.getElementById('search-ticket-input');
+    const btnSearch         = document.getElementById('btn-search');
+
     let currentTicketId = null;
+    let allTickets = [];
+    let searchedTicketId = null;
 
     // ── Live polling ──────────────────────────────────────────────────────────
     fetchStatus();
@@ -36,10 +42,44 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res  = await fetch('/api/status');
             const data = await res.json();
+            allTickets = data.tickets || [];
             renderFloors(data.capacity);
-            renderTickets(data.tickets);
+            
+            // Only render the searched ticket, if any
+            if (searchedTicketId) {
+                const found = allTickets.find(t => t.id == searchedTicketId);
+                renderTickets(found ? [found] : []);
+            } else {
+                renderTickets([]); // shows default empty state
+            }
         } catch (err) {
             console.error('Error fetching status:', err);
+        }
+    }
+
+    // ── Search functionality ──────────────────────────────────────────────────
+    btnSearch.addEventListener('click', performSearch);
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') performSearch();
+    });
+
+    function performSearch() {
+        const val = searchInput.value.trim();
+        if (!val) {
+            searchedTicketId = null;
+            renderTickets([]);
+            return;
+        }
+        searchedTicketId = parseInt(val, 10);
+        const found = allTickets.find(t => t.id === searchedTicketId);
+        
+        if (found) {
+            renderTickets([found]);
+        } else {
+            ticketsList.innerHTML = `
+              <div class="bg-white rounded-2xl shadow-card border border-black/[0.02] px-6 py-8 text-center">
+                <p class="text-ink-400 text-sm font-medium">Ticket #${searchedTicketId} not found or no longer active.</p>
+              </div>`;
         }
     }
 
@@ -73,10 +113,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderTickets(tickets) {
         ticketsList.innerHTML = '';
         if (!tickets || tickets.length === 0) {
-            ticketsList.innerHTML = `
-              <div class="bg-white rounded-2xl shadow-card border border-black/[0.02] px-6 py-8 text-center">
-                <p class="text-ink-400 text-sm font-medium">No active tickets — parking lot is free.</p>
-              </div>`;
+            if (!searchedTicketId) {
+                ticketsList.innerHTML = `
+                  <div class="bg-white rounded-2xl shadow-card border border-black/[0.02] px-6 py-8 text-center">
+                    <p class="text-ink-400 text-sm font-medium">Enter a Ticket ID above to checkout.</p>
+                  </div>`;
+            }
             return;
         }
 
