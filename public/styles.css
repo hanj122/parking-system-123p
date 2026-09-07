@@ -1,0 +1,30 @@
+/* 
+  styles.css — Only things Tailwind can't express:
+  • Instrument Sans font-face (via Google Fonts @import)
+  • Custom keyframe animations
+  • Input number spinner hide
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&display=swap');
+
+/* Hide number input spin buttons */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type="number"] { -moz-appearance: textfield; }
+
+/* Pulse animation for the live dot */
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.5; transform: scale(0.85); }
+}
+.live-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* Slide-up fade-in for modal */
+@keyframes slide-up {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.modal-enter { animation: slide-up 0.22s ease-out forwards; }
