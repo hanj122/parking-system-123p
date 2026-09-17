@@ -8,6 +8,29 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
+// ── Page routes (Clean friendly aliases) ───────────────────────────
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+app.get('/frontpage', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+app.get('/demo', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/demo.html'));
+});
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/login.html'));
+});
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/login.html'));
+});
+app.get('/dashboard', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/dashboard.html'));
+});
+app.get('/admin-dashboard', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/dashboard.html'));
+});
+
 // Helper to check if a number can be formed by 20, 50, 100, 500, 1000
 function isValidPaymentAmount(amount) {
     if (amount <= 0 || !Number.isInteger(amount)) return false;
