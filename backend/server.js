@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const db = require('./db');
+const { exit } = require('process');
 
 const app = express();
 app.use(cors());
@@ -45,52 +46,64 @@ function isValidPaymentAmount(amount) {
     return amount % 10 === 0;
 }
 
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+const MANILA_OFFSET = 8 * HOUR;
+const PEAK_WINDOWS = [[7, 10], [17, 20]];
+
+function manilaDayStart(ts) {
+    return Math.floor((ts + MANILA_OFFSET) / DAY) * DAY - MANILA_OFFSET;
+}
+ 
+function overlapsWithPeakHours(entryDate, exitDate) {
+    const start = entryDate.getTime();
+    const end = exitDate.getTime();
+ 
+    for (let day = manilaDayStart(start); day <= end; day += DAY) {
+        for (const [s, e] of PEAK_WINDOWS) {
+            const winStart = day + s * HOUR;
+            const winEnd = day + e * HOUR;
+            if (start < winEnd && end > winStart) return true;
+        }
+    }
+    return false;
+}
+
+
+
 // Calculate fee based on entry and exit time
 function calculateFeeAndStatus(entryTime, exitTime) {
     const entryDate = new Date(entryTime);
     const exitDate = new Date(exitTime);
-    
-    const diffMs = exitDate - entryDate;
-    const diffHours = diffMs / (1000 * 60 * 60);
-
+ 
+    const diffHours = (exitDate - entryDate) / HOUR;
+ 
     if (diffHours >= 24) {
-        return { fee: 0, status: 'towed' };
+        return { fee: 0, status: 'towed', PeakHour: false };
     }
-
-    let crosses10PM = false;
-    let tenPM = new Date(entryDate);
-    tenPM.setHours(22, 0, 0, 0);
-    
-    if (entryDate > tenPM) {
-        tenPM.setDate(tenPM.getDate() + 1);
-    }
-    
-    if (exitDate > tenPM) {
-        crosses10PM = true;
-    }
-    
-    let fee = 0;
-    
-    if (crosses10PM) {
-        const hoursBefore10PM = Math.ceil((tenPM - entryDate) / (1000 * 60 * 60));
+ 
+    const PeakHour = overlapsWithPeakHours(entryDate, exitDate);
+    const baseFee = PeakHour ? Math.round(50 * 1.5) : 50;
+    const HourlyRate = PeakHour ? Math.round(20 * 1.5) : 20;
+ 
+    let tenPM = manilaDayStart(entryDate.getTime()) + 22 * HOUR;
+    if (entryDate.getTime() > tenPM) tenPM += DAY;
+ 
+    let fee;
+    if (exitDate.getTime() > tenPM) {
+        const hoursBefore10PM = Math.ceil((tenPM - entryDate.getTime()) / HOUR);
         let pre10Fee = 0;
         if (hoursBefore10PM > 0) {
-            pre10Fee = 50;
-            if (hoursBefore10PM > 3) {
-                pre10Fee += (hoursBefore10PM - 3) * 20;
-            }
+            pre10Fee = baseFee;
+            if (hoursBefore10PM > 3) pre10Fee += (hoursBefore10PM - 3) * HourlyRate;
         }
         fee = 300 + pre10Fee;
     } else {
         const fullHours = Math.ceil(diffHours);
-        if (fullHours <= 3) {
-            fee = 50;
-        } else {
-            fee = 50 + (fullHours - 3) * 20;
-        }
+        fee = fullHours <= 3 ? baseFee : baseFee + (fullHours - 3) * HourlyRate;
     }
-    
-    return { fee, status: 'completed' };
+ 
+    return { fee, status: 'completed', PeakHour };
 }
 
 function calculateChangeBreakdown(change) {
@@ -152,8 +165,8 @@ app.get('/api/ticket/:id/fee', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!ticket) return res.status(404).json({ error: 'Active ticket not found' });
 
-        const { fee, status } = calculateFeeAndStatus(ticket.entry_time, exitTime);
-        res.json({ fee, status, entryTime: ticket.entry_time, exitTime });
+        const { fee, status, PeakHour } = calculateFeeAndStatus(ticket.entry_time, exitTime);
+        res.json({ fee, status, PeakHour, entryTime: ticket.entry_time, exitTime });
     });
 });
 
@@ -166,7 +179,7 @@ app.post('/api/exit', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!ticket) return res.status(404).json({ error: 'Active ticket not found' });
 
-        const { fee, status } = calculateFeeAndStatus(ticket.entry_time, exitTime);
+        const { fee, status, PeakHour } = calculateFeeAndStatus(ticket.entry_time, exitTime);
 
         if (status === 'towed') {
             db.serialize(() => {
@@ -196,7 +209,7 @@ app.post('/api/exit', (req, res) => {
                 [exitTime, fee, amountReceived, changeGiven, JSON.stringify(changeBreakdown), ticketId], 
                 (err) => {
                     if (err) return res.status(500).json({ error: err.message });
-                    res.json({ success: true, fee, changeGiven, changeBreakdown, status: 'completed' });
+                    res.json({ success: true, fee, changeGiven, changeBreakdown, status: 'completed', PeakHour });
                 }
             );
         });

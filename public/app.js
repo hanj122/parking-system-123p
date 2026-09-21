@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const coEntryTime       = document.getElementById('co-entry-time');
     const coStatusPill      = document.getElementById('co-status-pill');
     const coFeeDisplay      = document.getElementById('co-fee-display');
+    const coPeakBadge       = document.getElementById('co-peak-badge');
     const cashInput         = document.getElementById('cash-input');
     const paymentError      = document.getElementById('payment-error');
     const paymentSection    = document.getElementById('payment-section');
@@ -251,8 +252,76 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 5000);
     }
 
+    // Peak Surge Badge
+    function renderPeakBadge(PeakHour) {
+        let badgeEl = document.getElementById('co-peak-badge');
+
+        if (!badgeEl && coFeeDisplay) {
+            badgeEl = document.createElement('div');
+            badgeEl.id = 'co-peak-badge';
+            badgeEl.className = 'mb-2';
+            coFeeDisplay.parentNode.insertBefore(badgeEl, coFeeDisplay);
+
+        }
+
+        if (!badgeEl) return;
+
+        if (PeakHour) {
+            badgeEl.innerHTML = `
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold shadow-xs">
+            Peak Hour Rate Applied (1.5x)
+            </span>`;
+            badgeEl.classList.remove('hidden');
+        } else {
+            badgeEl.innerHTML = '';
+            badgeEl.classList.add('hidden');
+        }
+    }
+
+     async function loadFeePreview() {
+        if (!currentTicketId) return;
+
+        if (btnPay && btnPay.classList.contains('hidden')) return;
+ 
+        if (paymentError) {
+            paymentError.textContent = '';
+            paymentError.classList.add('hidden');
+        }
+ 
+        const exitTimeParam = (simExitTime && simExitTime.value)
+            ? `?exitTime=${new Date(simExitTime.value).toISOString()}`
+            : '';
+ 
+        try {
+            const res  = await fetch(`/api/ticket/${currentTicketId}/fee${exitTimeParam}`);
+            const data = await res.json();
+ 
+            if (res.ok) {
+                if (coFeeDisplay) coFeeDisplay.textContent = `₱${data.fee}`;
+                setStatusPill(data.status);
+                renderPeakBadge(!!data.PeakHour);
+ 
+                if (data.status === 'towed') {
+                    if (paymentSection) paymentSection.classList.add('hidden');
+                    if (btnPay) btnPay.textContent = 'Acknowledge TOWED';
+                } else {
+                    if (paymentSection) paymentSection.classList.remove('hidden');
+                    if (btnPay) btnPay.textContent = 'Pay & Exit';
+                }
+            } else {
+                if (coFeeDisplay) coFeeDisplay.textContent = 'Error';
+                showPaymentError(data.error);
+            }
+        } catch (err) {
+            console.error(err);
+            showPaymentError('Failed to calculate fee. Please check server connection.');
+        }
+    }
+ 
+    if (simExitTime) simExitTime.addEventListener('change', loadFeePreview);
+
     // ── Checkout modal ────────────────────────────────────────────────────────
-    window.openCheckout = async function(ticketId, slotId, floor, entryTime) {
+        window.openCheckout = async function(ticketId, slotId, floor, entryTime) {
         currentTicketId = ticketId;
         if (coTicketId) coTicketId.textContent = '#' + ticketId;
         if (coSlotId) coSlotId.textContent = slotId;
@@ -261,6 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Reset modal state
         setStatusPill('Pending');
+        renderPeakBadge(false);
         if (coFeeDisplay) coFeeDisplay.textContent = '₱—';
         if (cashInput) cashInput.value = '';
         if (paymentError) {
@@ -279,34 +349,11 @@ document.addEventListener('DOMContentLoaded', () => {
             btnPay.textContent = 'Pay & Exit';
         }
         if (btnClose) btnClose.classList.add('hidden');
-
+ 
         if (modal) modal.classList.remove('hidden');
 
         // Fetch fee preview
-        const exitTimeParam = (simExitTime && simExitTime.value)
-            ? `?exitTime=${new Date(simExitTime.value).toISOString()}`
-            : '';
-
-        try {
-            const res  = await fetch(`/api/ticket/${ticketId}/fee${exitTimeParam}`);
-            const data = await res.json();
-
-            if (res.ok) {
-                if (coFeeDisplay) coFeeDisplay.textContent = `₱${data.fee}`;
-                setStatusPill(data.status);
-
-                if (data.status === 'towed') {
-                    if (paymentSection) paymentSection.classList.add('hidden');
-                    if (btnPay) btnPay.textContent = 'Acknowledge TOWED';
-                }
-            } else {
-                if (coFeeDisplay) coFeeDisplay.textContent = 'Error';
-                showPaymentError(data.error);
-            }
-        } catch (err) {
-            console.error(err);
-            showPaymentError('Failed to calculate fee. Please check server connection.');
-        }
+           await loadFeePreview();
     };
 
     function setStatusPill(status) {
