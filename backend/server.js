@@ -345,7 +345,8 @@ app.post("/api/exit", (req, res) => {
   );
 });
 
-// GET /api/kpis - revenue per available space and related summary
+// GET /api/kpis
+// Dashboard KPI data
 app.get("/api/kpis", (req, res) => {
   const totalSpacesQuery = `
     SELECT COUNT(*) AS total_spaces
@@ -358,21 +359,241 @@ app.get("/api/kpis", (req, res) => {
     WHERE status = 'completed'
   `;
 
+  const turnoverQuery = `
+    SELECT COUNT(*) AS completed_sessions
+    FROM tickets
+    WHERE status = 'completed'
+  `;
+
   db.get(totalSpacesQuery, (err, spacesRow) => {
-    if (err) return res.status(500).json({ error: err.message });
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
 
-    db.get(revenueQuery, (err2, revenueRow) => {
-      if (err2) return res.status(500).json({ error: err2.message });
+    db.get(revenueQuery, (err, revenueRow) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
 
-      const totalSpaces = Number(spacesRow.total_spaces || 0);
-      const totalRevenue = Number(revenueRow.total_revenue || 0);
+      db.get(turnoverQuery, (err, turnoverRow) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+
+        const totalSpaces = Number(spacesRow.total_spaces || 0);
+        const totalRevenue = Number(revenueRow.total_revenue || 0);
+        const completedSessions = Number(
+          turnoverRow.completed_sessions || 0
+        );
+
+        const revenuePerAvailableSpace =
+          totalSpaces > 0
+            ? totalRevenue / totalSpaces
+            : 0;
+
+        const turnoverRate =
+          totalSpaces > 0
+            ? completedSessions / totalSpaces
+            : 0;
+
+        res.json({
+          totalSpaces,
+          totalRevenue,
+          completedSessions,
+
+          revenuePerAvailableSpace: Number(
+            revenuePerAvailableSpace.toFixed(2)
+          ),
+
+          turnoverRate: Number(
+            turnoverRate.toFixed(2)
+          )
+        });
+      });
+    });
+  });
+});
+// GET /api/analytics/turnover
+// Detailed turnover and revenue information
+app.get("/api/analytics/turnover", (req, res) => {
+  const date = req.query.date;
+
+  let dateFilter = "";
+  let params = [];
+
+  if (date) {
+    dateFilter = `
+      AND DATE(t.exit_time) = ?
+    `;
+    params.push(date);
+  }
+
+  const query = `
+    SELECT
+      t.id AS ticket_id,
+      t.slot_id,
+      t.entry_time,
+      t.exit_time,
+      t.fee
+    FROM tickets t
+    WHERE t.status = 'completed'
+      AND t.exit_time IS NOT NULL
+      ${dateFilter}
+    ORDER BY t.slot_id ASC, t.entry_time ASC
+  `;
+
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      return res.status(500).json({
+        error: err.message
+      });
+    }
+
+    const vehicles = rows.map((row) => {
+      const entry = new Date(row.entry_time);
+      const exit = new Date(row.exit_time);
+
+      const durationMs = exit - entry;
+
+      const durationMinutes = Math.max(
+        0,
+        Math.round(durationMs / 60000)
+      );
+
+      const durationHours = durationMinutes / 60;
+
+      let turnoverLevel;
+
+      if (durationHours <= 2) {
+        turnoverLevel = "HIGH";
+      } else if (durationHours <= 4) {
+        turnoverLevel = "MEDIUM";
+      } else {
+        turnoverLevel = "LOW";
+      }
+
+      return {
+        ticketId: row.ticket_id,
+        slotId: row.slot_id,
+        entryTime: row.entry_time,
+        exitTime: row.exit_time,
+        fee: Number(row.fee || 0),
+        durationMinutes,
+        durationHours: Number(durationHours.toFixed(2)),
+        turnoverLevel
+      };
+    });
+
+    const totalSpacesQuery = `
+      SELECT COUNT(*) AS total_spaces
+      FROM slots
+    `;
+
+    db.get(totalSpacesQuery, (spaceErr, spaceRow) => {
+      if (spaceErr) {
+        return res.status(500).json({
+          error: spaceErr.message
+        });
+      }
+
+      const totalSpaces = Number(
+        spaceRow.total_spaces || 0
+      );
+
+      const totalRevenue = vehicles.reduce(
+        (sum, vehicle) => sum + vehicle.fee,
+        0
+      );
+
+      const totalVehicles = vehicles.length;
+
       const revenuePerAvailableSpace =
-        totalSpaces > 0 ? totalRevenue / totalSpaces : 0;
+        totalSpaces > 0
+          ? totalRevenue / totalSpaces
+          : 0;
+
+      const turnoverRate =
+        totalSpaces > 0
+          ? totalVehicles / totalSpaces
+          : 0;
+
+      // Group vehicles by parking space
+      const spaceMap = {};
+
+      vehicles.forEach((vehicle) => {
+        if (!spaceMap[vehicle.slotId]) {
+          spaceMap[vehicle.slotId] = {
+            slotId: vehicle.slotId,
+            vehicleCount: 0,
+            totalRevenue: 0,
+            totalDurationMinutes: 0
+          };
+        }
+
+        spaceMap[vehicle.slotId].vehicleCount += 1;
+
+        spaceMap[vehicle.slotId].totalRevenue +=
+          vehicle.fee;
+
+        spaceMap[vehicle.slotId].totalDurationMinutes +=
+          vehicle.durationMinutes;
+      });
+
+      const spaces = Object.values(spaceMap).map((space) => {
+        const averageDurationMinutes =
+          space.vehicleCount > 0
+            ? space.totalDurationMinutes /
+              space.vehicleCount
+            : 0;
+
+        const averageDurationHours =
+          averageDurationMinutes / 60;
+
+        let turnoverLevel;
+
+        if (averageDurationHours <= 2) {
+          turnoverLevel = "HIGH";
+        } else if (averageDurationHours <= 4) {
+          turnoverLevel = "MEDIUM";
+        } else {
+          turnoverLevel = "LOW";
+        }
+
+        return {
+          slotId: space.slotId,
+
+          vehicleCount: space.vehicleCount,
+
+          totalRevenue: Number(
+            space.totalRevenue.toFixed(2)
+          ),
+
+          averageDurationMinutes: Math.round(
+            averageDurationMinutes
+          ),
+
+          averageDurationHours: Number(
+            averageDurationHours.toFixed(2)
+          ),
+
+          turnoverLevel
+        };
+      });
 
       res.json({
         totalSpaces,
-        totalRevenue,
-        revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
+        totalVehicles,
+        totalRevenue: Number(
+          totalRevenue.toFixed(2)
+        ),
+        revenuePerAvailableSpace: Number(
+          revenuePerAvailableSpace.toFixed(2)
+        ),
+        turnoverRate: Number(
+          turnoverRate.toFixed(2)
+        ),
+        spaces,
+        vehicles
       });
     });
   });
