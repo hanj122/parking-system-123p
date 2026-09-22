@@ -8,6 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const simExitTime = document.getElementById("sim-exit-time");
   const entryToast = document.getElementById("entry-toast");
   const entryToastMsg = document.getElementById("entry-toast-msg");
+  const ticketMapElement = document.getElementById("ticket-map");
+  const ticketMapStatus = document.getElementById("ticket-map-status");
 
   // Modal refs
   const modal = document.getElementById("exit-modal");
@@ -37,6 +39,40 @@ document.addEventListener("DOMContentLoaded", () => {
   let allTickets = [];
   let searchedTicketId = null;
   let toastTimeout = null;
+  let ticketMap = null;
+  let ticketMarker = null;
+  let ticketMapLocation = null;
+
+  initializeTicketMap();
+
+  async function initializeTicketMap() {
+    if (!ticketMapElement) return;
+
+    try {
+      if (!window.L) throw new Error("Leaflet failed to load");
+      ticketMap = L.map(ticketMapElement).setView([14.5995, 120.9842], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(ticketMap);
+      ticketMap.on("click", (event) => {
+        ticketMapLocation = {
+          latitude: event.latlng.lat,
+          longitude: event.latlng.lng,
+        };
+        if (!ticketMarker) {
+          ticketMarker = L.marker(event.latlng).addTo(ticketMap);
+        } else {
+          ticketMarker.setLatLng(event.latlng);
+        }
+        if (ticketMapStatus) ticketMapStatus.textContent = "Location pinned";
+      });
+      setTimeout(() => ticketMap.invalidateSize(), 50);
+    } catch (error) {
+      console.error("Ticket map failed to load:", error);
+      ticketMapElement.innerHTML =
+        '<p class="p-4 text-xs text-red-600">Leaflet map could not be loaded.</p>';
+    }
+  }
 
   // ── Live polling ──────────────────────────────────────────────────────────
   fetchStatus();
@@ -282,7 +318,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const res = await fetch("/api/entry", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entryTime }),
+          body: JSON.stringify({
+            entryTime,
+            mapLatitude: ticketMapLocation?.latitude ?? null,
+            mapLongitude: ticketMapLocation?.longitude ?? null,
+          }),
         });
         const data = await res.json();
 

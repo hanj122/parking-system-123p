@@ -30,6 +30,9 @@ app.get("/dashboard", (req, res) => {
 app.get("/admin-dashboard", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
+app.get("/reports", (req, res) => {
+  res.sendFile(path.join(__dirname, "../public/reports.html"));
+});
 
 // Helper to check if a number can be formed by 20, 50, 100, 500, 1000
 function isValidPaymentAmount(amount) {
@@ -38,6 +41,7 @@ function isValidPaymentAmount(amount) {
   // Since 100, 500, 1000 are multiples of 20 and 50 (wait, 100=50x2, 500=50x10, 1000=50x20),
   // any combination of these bills can be reduced to just combinations of 20 and 50.
   // We just need to check if amount can be written as 20x + 50y.
+
   // Valid amounts for 20x + 50y:
   if (amount === 10 || amount === 30) return false;
   // For anything else, if it's a multiple of 10, we can always form it (40, 50, 60, 70, 80...).
@@ -169,12 +173,29 @@ app.post("/api/entry", (req, res) => {
       }
 
       const entryTime = req.body.entryTime || new Date().toISOString();
+      const mapLatitude = req.body.mapLatitude ?? null;
+      const mapLongitude = req.body.mapLongitude ?? null;
+
+      if (
+        (mapLatitude !== null &&
+          (!Number.isFinite(Number(mapLatitude)) ||
+            Number(mapLatitude) < 14.3 ||
+            Number(mapLatitude) > 14.9)) ||
+        (mapLongitude !== null &&
+          (!Number.isFinite(Number(mapLongitude)) ||
+            Number(mapLongitude) < 120.8 ||
+            Number(mapLongitude) > 121.3))
+      ) {
+        return res
+          .status(400)
+          .json({ error: "Ticket map pin must be within Metro Manila." });
+      }
 
       db.serialize(() => {
         db.run("UPDATE slots SET status = 'occupied' WHERE id = ?", [slot.id]);
         db.run(
-          "INSERT INTO tickets (slot_id, entry_time) VALUES (?, ?)",
-          [slot.id, entryTime],
+          "INSERT INTO tickets (slot_id, entry_time, map_latitude, map_longitude) VALUES (?, ?, ?, ?)",
+          [slot.id, entryTime, mapLatitude, mapLongitude],
           function (err) {
             if (err) return res.status(500).json({ error: err.message });
 
@@ -368,6 +389,244 @@ app.get("/api/reports", (req, res) => {
     },
   );
 });
+
+// DELETE /api/reports/:id - Remove a report ticket
+app.delete("/api/reports/:id", (req, res) => {
+  const reportId = Number.parseInt(req.params.id, 10);
+
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return res.status(400).json({ error: "A valid report id is required." });
+  }
+
+  db.run("DELETE FROM reports WHERE id = ?", [reportId], function (err) {
+    if (err) {
+      console.error("Failed to delete report:", err.message);
+      return res.status(500).json({ error: "Failed to delete report." });
+    }
+
+    if (this.changes === 0) {
+      return res.status(404).json({ error: "Report not found." });
+    }
+
+    res.json({ success: true, deletedId: reportId });
+  });
+});
+
+// POST /api/reports - Create a manual admin parking lot report
+app.post("/api/reports", (req, res) => {
+  const { type, severity = "info", message, floor = null } = req.body;
+
+  // Validate report type
+  const allowedTypes = [
+    "Maintenance",
+    "Equipment Issue",
+    "Safety",
+    "Parking Issue",
+    "Customer Concern",
+    "Capacity",
+    "Payment",
+    "Security",
+    "Other",
+  ];
+
+  if (!type || !allowedTypes.includes(type)) {
+    return res.status(400).json({
+      error: "Please select a valid report type.",
+    });
+  }
+
+  // Validate severity
+  const allowedSeverities = ["info", "warning", "critical"];
+
+  if (!allowedSeverities.includes(severity)) {
+    return res.status(400).json({
+      error: "Invalid severity. Use info, warning, or critical.",
+    });
+  }
+
+  // Validate message
+  if (!message || typeof message !== "string" || !message.trim()) {
+    return res.status(400).json({
+      error: "Report message is required.",
+    });
+  }
+
+  if (message.trim().length > 1000) {
+    return res.status(400).json({
+      error: "Report message must be 1000 characters or fewer.",
+    });
+  }
+
+  // Validate floor
+  let normalizedFloor = null;
+
+  if (floor !== null && floor !== "" && floor !== undefined) {
+    normalizedFloor = Number(floor);
+
+    if (![1, 2, 3].includes(normalizedFloor)) {
+      return res.status(400).json({
+        error: "Floor must be 1, 2, or 3.",
+      });
+    }
+  }
+
+  const cleanMessage = message.trim();
+
+  db.run(
+    `INSERT INTO reports
+      (type, severity, message, floor, source)
+     VALUES (?, ?, ?, ?, 'admin')`,
+    [type, severity, cleanMessage, normalizedFloor],
+    function (err) {
+      if (err) {
+        console.error("Failed to create report:", err.message);
+
+        return res.status(500).json({
+          error: "Failed to create parking lot report.",
+        });
+      }
+
+      db.get(
+        "SELECT * FROM reports WHERE id = ?",
+        [this.lastID],
+        (selectErr, report) => {
+          if (selectErr) {
+            return res.status(500).json({
+              error: "Report was created but could not be retrieved.",
+            });
+          }
+
+          res.status(201).json({
+            success: true,
+            report,
+          });
+        },
+      );
+    },
+  );
+});
+
+// GET /api/demand-forecasts - List saved demand forecast events
+app.get(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
+  db.all(
+    `SELECT * FROM demand_forecasts
+     ORDER BY event_date ASC, event_time ASC
+     LIMIT 100`,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    },
+  );
+});
+
+// DELETE /api/demand-forecasts/:id - Remove a saved forecast event
+app.delete(["/api/demand-forecasts/:id", "/api/forecasts/:id"], (req, res) => {
+  const forecastId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(forecastId) || forecastId <= 0) {
+    return res.status(400).json({ error: "A valid forecast id is required." });
+  }
+
+  db.run(
+    "DELETE FROM demand_forecasts WHERE id = ?",
+    [forecastId],
+    function (err) {
+      if (err)
+        return res
+          .status(500)
+          .json({ error: "Failed to delete forecast event." });
+      if (this.changes === 0)
+        return res.status(404).json({ error: "Forecast event not found." });
+      res.json({ success: true, deletedId: forecastId });
+    },
+  );
+});
+
+// POST /api/demand-forecasts - Save an event for demand forecasting
+app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
+  const { nature, date, time, category, location, latitude, longitude } =
+    req.body;
+  const allowedCategories = ["Concert", "Sports", "Holiday", "Market", "Other"];
+
+  if (!nature || typeof nature !== "string" || !nature.trim()) {
+    return res.status(400).json({ error: "Event nature is required." });
+  }
+  if (nature.trim().length > 200) {
+    return res
+      .status(400)
+      .json({ error: "Event nature must be 200 characters or fewer." });
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) {
+    return res.status(400).json({ error: "A valid event date is required." });
+  }
+  if (!/^\d{2}:\d{2}$/.test(time || "")) {
+    return res.status(400).json({ error: "A valid event time is required." });
+  }
+  if (!allowedCategories.includes(category)) {
+    return res
+      .status(400)
+      .json({ error: "Please select a valid event category." });
+  }
+
+  const normalizedLatitude =
+    latitude === undefined || latitude === "" ? null : Number(latitude);
+  const normalizedLongitude =
+    longitude === undefined || longitude === "" ? null : Number(longitude);
+  if (
+    (normalizedLatitude !== null &&
+      (!Number.isFinite(normalizedLatitude) ||
+        normalizedLatitude < 14.3 ||
+        normalizedLatitude > 14.9)) ||
+    (normalizedLongitude !== null &&
+      (!Number.isFinite(normalizedLongitude) ||
+        normalizedLongitude < 120.8 ||
+        normalizedLongitude > 121.3))
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Map pin must be within Metro Manila." });
+  }
+  if (
+    location !== undefined &&
+    location !== null &&
+    String(location).trim().length > 120
+  ) {
+    return res
+      .status(400)
+      .json({ error: "Location must be 120 characters or fewer." });
+  }
+
+  db.run(
+    `INSERT INTO demand_forecasts
+      (nature, event_date, event_time, category, location, latitude, longitude)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      nature.trim(),
+      date,
+      time,
+      category,
+      location ? String(location).trim() : null,
+      normalizedLatitude,
+      normalizedLongitude,
+    ],
+    function (err) {
+      if (err)
+        return res
+          .status(500)
+          .json({ error: "Failed to save forecast event." });
+
+      db.get(
+        "SELECT * FROM demand_forecasts WHERE id = ?",
+        [this.lastID],
+        (selectErr, event) => {
+          if (selectErr)
+            return res.status(500).json({ error: selectErr.message });
+          res.status(201).json({ success: true, event });
+        },
+      );
+    },
+  );
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
