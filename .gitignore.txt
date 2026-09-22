@@ -1,1 +1,15 @@
 node_modules/
+# -------------------------------------------------------------------
+# AI Agent Configuration
+# -------------------------------------------------------------------
+# Ignore local agent runtime data, histories, and workspace states
+.agent/logs/
+.agent/cache/
+.agent/workspace/
+.agent/*_history
+.agent/*.log
+.agent/local_config.json
+
+# BUT explicitly allow shared team instructions and rules
+!.agent/rules/
+!.agent/instructions.md
