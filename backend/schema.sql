@@ -17,3 +17,14 @@ CREATE TABLE IF NOT EXISTS tickets (
     FOREIGN KEY (slot_id) REFERENCES slots(id)
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    floor INTEGER,
+    slot_id INTEGER,
+    ticket_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
