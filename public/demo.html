@@ -1,295 +1,458 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Customer Parking Demo — ParkWise</title>
-  <link rel="stylesheet" href="styles.css" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Customer Parking Demo — ParkWise</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
 
-  <!-- Tailwind CSS via CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', 'Inter', 'system-ui', 'sans-serif'],
-          },
-          colors: {
-            'parkwise-accent': '#34c759',
-            'parkwise-accent-dark': '#30d158',
-            ink: {
-              900: '#1d1d1f',
-              700: '#3a3a3c',
-              400: '#6e6e73',
-              100: '#e5e5ea',
-              50:  '#f5f5f7',
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: [
+                "-apple-system",
+                "BlinkMacSystemFont",
+                '"SF Pro Text"',
+                "Inter",
+                "system-ui",
+                "sans-serif",
+              ],
+            },
+            colors: {
+              "parkwise-accent": "#34c759",
+              "parkwise-accent-dark": "#30d158",
+              ink: {
+                900: "#1d1d1f",
+                700: "#3a3a3c",
+                400: "#6e6e73",
+                100: "#e5e5ea",
+                50: "#f5f5f7",
+              },
+            },
+            borderRadius: {
+              "apple-sm": "8px",
+              "apple-md": "12px",
+              "apple-lg": "18px",
+              "apple-xl": "22px",
+              "apple-2xl": "28px",
             },
           },
-          borderRadius: {
-            'apple-sm': '8px',
-            'apple-md': '12px',
-            'apple-lg': '18px',
-            'apple-xl': '22px',
-            'apple-2xl': '28px',
-          },
         },
-      },
-    };
-  </script>
-</head>
+      };
+    </script>
+  </head>
 
-<body class="bg-[#f5f5f7] text-[#1d1d1f] font-sans antialiased min-h-screen flex flex-col">
-
-  <!-- Apple-styled top header (Fully Responsive) -->
-  <header class="bg-white/90 backdrop-blur-md border-b border-black/5 sticky top-0 z-30 px-4 sm:px-6 py-3.5">
-    <div class="max-w-7xl mx-auto flex items-center justify-between gap-3">
-      <!-- Brand logo -->
-      <div class="flex items-center gap-2.5 min-w-0">
-        <a href="index.html" class="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity" title="Return to Frontpage">
-          <svg width="28" height="28" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="40" height="40" rx="10" fill="#1d1d1f"/>
-            <path d="M14 10H23C27.4183 10 31 13.5817 31 18C31 22.4183 27.4183 26 23 26H18V30H14V10ZM18 14V22H23C25.2091 22 27 20.2091 27 18C27 15.7909 25.2091 14 23 14H18Z" fill="white"/>
-          </svg>
-          <span class="font-bold tracking-tight text-base sm:text-lg text-[#1d1d1f]">ParkWise</span>
-        </a>
-        <span class="hidden xs:inline-block text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full bg-[#f5f5f7] text-[#6e6e73] font-medium border border-black/5">
-          Demo
-        </span>
-      </div>
-
-      <!-- Navigation actions -->
-      <div class="flex items-center gap-2 sm:gap-4 shrink-0">
-        <a href="index.html" class="text-xs sm:text-[13px] font-semibold text-[#6e6e73] hover:text-[#1d1d1f] transition-colors py-1">
-          ← <span class="hidden sm:inline">Frontpage</span><span class="sm:hidden">Home</span>
-        </a>
-        <a
-          href="login.html"
-          class="text-xs sm:text-[13px] font-semibold px-3.5 sm:px-4 py-1.5 rounded-full bg-[#1d1d1f] text-white hover:bg-[#3a3a3c] transition-colors"
-        >
-          Operator Login &rarr;
-        </a>
-      </div>
-    </div>
-  </header>
-
-  <!-- Main Content Layout (Responsive 1-col on mobile, 2-col on large screens) -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-    
-    <!-- Toast notification container (fixed top banner) -->
-    <div id="entry-toast" class="hidden transition-all duration-300 mb-6 items-center gap-3 bg-white rounded-apple-xl px-5 py-4 shadow-sm border border-black/5 text-sm sm:text-[15px] text-[#1d1d1f]">
-      <div class="w-8 h-8 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0 text-base">🚗</div>
-      <span id="entry-toast-msg" class="flex-1 font-medium"></span>
-      <button onclick="document.getElementById('entry-toast').classList.add('hidden')" class="text-[#8e8e93] hover:text-[#1d1d1f] text-lg font-bold px-2">×</button>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
-      
-      <!-- ┌────────────────────────────────────────────────────────┐
-           │ LEFT PANEL: Live Occupancy & Car Entry Flow          │
-           └────────────────────────────────────────────────────────┘ -->
-      <section class="flex flex-col gap-5">
-        
-        <!-- Panel Title & Controls Card -->
-        <div class="bg-white rounded-apple-2xl p-5 sm:p-6 shadow-sm border border-black/5 flex flex-col gap-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-[#1d1d1f]">Live Occupancy</h1>
-              <p class="text-xs text-[#6e6e73] mt-0.5">120-slot capacity across 3 floors</p>
-            </div>
-            <span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[#f5f5f7] text-[#1d1d1f]">
-              <span class="live-dot inline-block w-2 h-2 rounded-full bg-parkwise-accent animate-pulse"></span>
-              Live
-            </span>
-          </div>
-
-          <!-- Entry Action Bar -->
-          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-2 border-t border-[#f5f5f7]">
-            <div class="flex-1 flex flex-col gap-1">
-              <label for="sim-entry-time" class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider">
-                Simulated Entry Time (Optional)
-              </label>
-              <input
-                type="datetime-local"
-                id="sim-entry-time"
-                title="Override Entry Time"
-                class="w-full text-xs sm:text-[13px] px-3.5 py-2.5 rounded-apple-md bg-[#f5f5f7] text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-parkwise-accent border border-transparent focus:border-transparent transition-all"
-              />
-            </div>
-            
-            <button
-              id="btn-entry"
-              type="button"
-              class="w-full sm:w-auto mt-auto px-6 py-2.5 sm:py-3 rounded-full bg-[#1d1d1f] hover:bg-[#3a3a3c] active:scale-95 text-white text-sm sm:text-[15px] font-semibold transition-all duration-150 shadow-sm shrink-0 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+  <body
+    class="bg-[#f5f5f7] text-[#1d1d1f] font-sans antialiased min-h-screen flex flex-col"
+  >
+    <!-- Apple-styled top header (Fully Responsive) -->
+    <header
+      class="bg-white/90 backdrop-blur-md border-b border-black/5 sticky top-0 z-30 px-4 sm:px-6 py-3.5"
+    >
+      <div class="max-w-7xl mx-auto flex items-center justify-between gap-3">
+        <!-- Brand logo -->
+        <div class="flex items-center gap-2.5 min-w-0">
+          <a
+            href="index.html"
+            class="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity"
+            title="Return to Frontpage"
+          >
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 40 40"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              <span>🚗</span>
-              <span id="btn-entry-text">Enter Lot</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Floor Occupancy Cards Container (Injected by app.js) -->
-        <div id="floors-container" class="flex flex-col gap-3 sm:gap-4"></div>
-      </section>
-
-      <!-- ┌────────────────────────────────────────────────────────┐
-           │ RIGHT PANEL: Active Tickets & Checkout Search        │
-           └────────────────────────────────────────────────────────┘ -->
-      <section class="flex flex-col gap-5">
-        
-        <!-- Search & Exit Controls Card -->
-        <div class="bg-white rounded-apple-2xl p-5 sm:p-6 shadow-sm border border-black/5 flex flex-col gap-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h2 class="text-xl sm:text-2xl font-bold tracking-tight text-[#1d1d1f]">Active Tickets</h2>
-              <p class="text-xs text-[#6e6e73] mt-0.5">Select a ticket to calculate parking fee and exit</p>
-            </div>
-            
-            <!-- Optional simulated exit time -->
-            <div class="flex flex-col gap-1 w-full sm:w-auto">
-              <label for="sim-exit-time" class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider sm:text-right">
-                Exit Time Override
-              </label>
-              <input
-                type="datetime-local"
-                id="sim-exit-time"
-                title="Override Exit Time"
-                class="text-xs sm:text-[13px] px-3 py-1.5 rounded-full bg-[#f5f5f7] text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-parkwise-accent border border-transparent transition-all w-full"
+              <rect width="40" height="40" rx="10" fill="#1d1d1f" />
+              <path
+                d="M14 10H23C27.4183 10 31 13.5817 31 18C31 22.4183 27.4183 26 23 26H18V30H14V10ZM18 14V22H23C25.2091 22 27 20.2091 27 18C27 15.7909 25.2091 14 23 14H18Z"
+                fill="white"
               />
-            </div>
-          </div>
-
-          <!-- Search Input & Filter Button -->
-          <div class="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#f5f5f7]">
-            <input
-              type="text"
-              id="search-ticket-input"
-              placeholder="Search by Ticket ID (e.g. 25)..."
-              class="flex-1 rounded-full bg-[#f5f5f7] px-4 sm:px-5 py-2.5 text-sm sm:text-[15px] text-[#1d1d1f] placeholder-[#8e8e93] focus:outline-none focus:ring-2 focus:ring-parkwise-accent transition-all"
-            />
-            <div class="flex gap-2">
-              <button
-                id="btn-search"
-                type="button"
-                class="flex-1 sm:flex-initial px-5 py-2.5 rounded-full bg-[#1d1d1f] hover:bg-[#3a3a3c] active:scale-95 text-white text-xs sm:text-sm font-semibold transition-all duration-150 cursor-pointer text-center"
-              >
-                Search
-              </button>
-              <button
-                id="btn-clear-search"
-                type="button"
-                class="hidden px-4 py-2.5 rounded-full bg-[#f5f5f7] hover:bg-[#e5e5ea] text-[#6e6e73] text-xs font-semibold transition-all duration-150 cursor-pointer"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Ticket Cards Container (Injected by app.js) -->
-        <div id="tickets-list" class="flex flex-col gap-3 sm:gap-4"></div>
-      </section>
-
-    </div>
-  </main>
-
-  <!-- ═════════════════════════════════════════════════════════
-       CHECKOUT MODAL (Responsive with scrolling fallback)
-  ══════════════════════════════════════════════════════════ -->
-  <div id="exit-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-    <div class="modal-enter bg-white rounded-apple-2xl w-full max-w-md p-6 sm:p-8 flex flex-col gap-5 shadow-2xl my-auto">
-      <div class="flex items-center justify-between border-b border-[#f5f5f7] pb-3">
-        <div>
-          <p class="text-[11px] font-semibold tracking-widest uppercase text-[#8e8e93]">Customer Checkout</p>
-          <h3 class="text-xl sm:text-2xl font-bold tracking-tight text-[#1d1d1f]">Pay &amp; Exit</h3>
-        </div>
-        <button id="btn-modal-close-x" class="text-[#8e8e93] hover:text-[#1d1d1f] text-2xl font-semibold leading-none p-1">×</button>
-      </div>
-
-      <!-- Ticket Summary -->
-      <div class="bg-[#f5f5f7] rounded-apple-xl p-4 sm:p-5 flex flex-col gap-3 text-sm sm:text-[15px]">
-        <div class="flex justify-between items-baseline">
-          <span class="text-[#6e6e73] font-medium">Ticket ID</span>
-          <strong id="co-ticket-id" class="font-bold text-[#1d1d1f]"></strong>
-        </div>
-        <div class="flex justify-between items-baseline">
-          <span class="text-[#6e6e73] font-medium">Assigned Slot</span>
-          <span class="font-semibold text-[#1d1d1f]">
-            Slot <span id="co-slot-id"></span>
-            <span class="text-[#6e6e73] font-normal"> · Floor <span id="co-floor"></span></span>
+            </svg>
+            <span
+              class="font-bold tracking-tight text-base sm:text-lg text-[#1d1d1f]"
+              >ParkWise</span
+            >
+          </a>
+          <span
+            class="hidden xs:inline-block text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full bg-[#f5f5f7] text-[#6e6e73] font-medium border border-black/5"
+          >
+            Demo
           </span>
         </div>
-        <div class="flex justify-between items-baseline">
-          <span class="text-[#6e6e73] font-medium">Entry time</span>
-          <span id="co-entry-time" class="font-medium text-[#1d1d1f] text-xs sm:text-sm"></span>
-        </div>
 
-        <div class="border-t border-[#e5e5ea] my-0.5"></div>
-
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold tracking-widest uppercase text-[#8e8e93]">Status</span>
-          <span id="co-status-pill" class="px-3 py-0.5 rounded-full bg-[#e5e5ea] text-[#1d1d1f] text-xs font-bold tracking-wide">—</span>
-        </div>
-
-        <div id="co-peak-badge" class="hidden text-center px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold tracking-wide w-full">
-          ⚡ Peak Hour Rate Applied (1.5x)
-        </div>
-
-        <div class="mt-1 text-center py-2 flex flex-col items-center gap-1 border-t border-[#e5e5ea] pt-3">
-          <p class="text-xs text-[#8e8e93] font-medium uppercase tracking-widest">Total Fee Due</p>
-          <p id="co-fee-display" class="text-4xl sm:text-5xl font-extrabold tracking-tight text-parkwise-accent">₱—</p>
+        <!-- Navigation actions -->
+        <div class="flex items-center gap-2 sm:gap-4 shrink-0">
+          <a
+            href="index.html"
+            class="text-xs sm:text-[13px] font-semibold text-[#6e6e73] hover:text-[#1d1d1f] transition-colors py-1"
+          >
+            ← <span class="hidden sm:inline">Frontpage</span
+            ><span class="sm:hidden">Home</span>
+          </a>
+          <a
+            href="login.html"
+            class="text-xs sm:text-[13px] font-semibold px-3.5 sm:px-4 py-1.5 rounded-full bg-[#1d1d1f] text-white hover:bg-[#3a3a3c] transition-colors"
+          >
+            Operator Login &rarr;
+          </a>
         </div>
       </div>
+    </header>
 
-      <!-- Cash Payment Form -->
-      <div id="payment-section" class="flex flex-col gap-2">
-        <label for="cash-input" class="text-sm sm:text-[15px] font-semibold text-[#1d1d1f]">Cash Received (₱)</label>
-        <p class="text-xs text-[#8e8e93]">Accepted bills: 20 · 50 · 100 · 500 · 1,000</p>
-        <input
-          type="number"
-          id="cash-input"
-          placeholder="Enter payment (e.g. 100)"
-          step="10"
-          class="w-full rounded-apple-md bg-[#f5f5f7] px-4 py-3 text-base font-semibold text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-parkwise-accent transition-all"
-        />
-        <p id="payment-error" class="hidden text-xs font-semibold text-red-500 mt-1"></p>
+    <!-- Main Content Layout (Responsive 1-col on mobile, 2-col on large screens) -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <!-- Toast notification container (fixed top banner) -->
+      <div
+        id="entry-toast"
+        class="hidden transition-all duration-300 mb-6 items-center gap-3 bg-white rounded-apple-xl px-5 py-4 shadow-sm border border-black/5 text-sm sm:text-[15px] text-[#1d1d1f]"
+      >
+        <div
+          class="w-8 h-8 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0 text-base"
+        >
+          🚗
+        </div>
+        <span id="entry-toast-msg" class="flex-1 font-medium"></span>
+        <button
+          onclick="
+            document.getElementById('entry-toast').classList.add('hidden')
+          "
+          class="text-[#8e8e93] hover:text-[#1d1d1f] text-lg font-bold px-2"
+        >
+          ×
+        </button>
       </div>
 
-      <!-- Payment Receipt (Shown upon completion) -->
-      <div id="receipt-section" class="hidden flex-col gap-3 bg-emerald-50 border border-emerald-100 rounded-apple-xl p-5 text-center">
-        <p class="text-sm sm:text-[15px] font-bold text-emerald-700">✓ Payment Successful</p>
-        <p class="text-[#6e6e73] text-xs uppercase tracking-widest font-semibold mt-1">Change Returned</p>
-        <p class="text-3xl sm:text-4xl font-extrabold text-[#1d1d1f]">₱<span id="co-change"></span></p>
-        <div id="co-breakdown" class="mt-2 text-left text-xs sm:text-sm text-[#3a3a3c] border-t border-emerald-200/60 pt-2"></div>
-      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
+        <!-- ┌────────────────────────────────────────────────────────┐
+           │ LEFT PANEL: Live Occupancy & Car Entry Flow          │
+           └────────────────────────────────────────────────────────┘ -->
+        <section class="flex flex-col gap-5">
+          <!-- Panel Title & Controls Card -->
+          <div
+            class="bg-white rounded-apple-2xl p-5 sm:p-6 shadow-sm border border-black/5 flex flex-col gap-4"
+          >
+            <div class="flex items-center justify-between">
+              <div>
+                <h1
+                  class="text-xl sm:text-2xl font-bold tracking-tight text-[#1d1d1f]"
+                >
+                  Live Occupancy
+                </h1>
+                <p class="text-xs text-[#6e6e73] mt-0.5">
+                  120-slot capacity across 3 floors
+                </p>
+              </div>
+              <span
+                class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-[#f5f5f7] text-[#1d1d1f]"
+              >
+                <span
+                  class="live-dot inline-block w-2 h-2 rounded-full bg-parkwise-accent animate-pulse"
+                ></span>
+                Live
+              </span>
+            </div>
 
-      <!-- Modal Action Buttons -->
-      <div class="flex justify-end items-center gap-2.5 pt-2">
-        <button
-          id="btn-cancel"
-          type="button"
-          class="px-5 py-2.5 rounded-full bg-[#f5f5f7] text-[#1d1d1f] text-sm font-semibold hover:bg-[#e5e5ea] transition-colors cursor-pointer"
+            <!-- Entry Action Bar -->
+            <div
+              class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-2 border-t border-[#f5f5f7]"
+            >
+              <div class="flex-1 flex flex-col gap-1">
+                <label
+                  for="sim-entry-time"
+                  class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider"
+                >
+                  Simulated Entry Time (Optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  id="sim-entry-time"
+                  title="Override Entry Time"
+                  class="w-full text-xs sm:text-[13px] px-3.5 py-2.5 rounded-apple-md bg-[#f5f5f7] text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-parkwise-accent border border-transparent focus:border-transparent transition-all"
+                />
+              </div>
+
+              <button
+                id="btn-entry"
+                type="button"
+                class="w-full sm:w-auto mt-auto px-6 py-2.5 sm:py-3 rounded-full bg-[#1d1d1f] hover:bg-[#3a3a3c] active:scale-95 text-white text-sm sm:text-[15px] font-semibold transition-all duration-150 shadow-sm shrink-0 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span>🚗</span>
+                <span id="btn-entry-text">Enter Lot</span>
+              </button>
+            </div>
+            <div class="pt-2 border-t border-[#f5f5f7]">
+              <div class="flex items-center justify-between mb-2">
+                <label
+                  class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider"
+                  >Ticket location</label
+                >
+                <span id="ticket-map-status" class="text-[11px] text-[#8e8e93]"
+                  >Optional map pin</span
+                >
+              </div>
+              <div
+                id="ticket-map"
+                class="h-52 rounded-apple-xl overflow-hidden border border-black/5 bg-[#f5f5f7]"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Floor Occupancy Cards Container (Injected by app.js) -->
+          <div id="floors-container" class="flex flex-col gap-3 sm:gap-4"></div>
+        </section>
+
+        <!-- ┌────────────────────────────────────────────────────────┐
+           │ RIGHT PANEL: Active Tickets & Checkout Search        │
+           └────────────────────────────────────────────────────────┘ -->
+        <section class="flex flex-col gap-5">
+          <!-- Search & Exit Controls Card -->
+          <div
+            class="bg-white rounded-apple-2xl p-5 sm:p-6 shadow-sm border border-black/5 flex flex-col gap-4"
+          >
+            <div
+              class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+            >
+              <div>
+                <h2
+                  class="text-xl sm:text-2xl font-bold tracking-tight text-[#1d1d1f]"
+                >
+                  Active Tickets
+                </h2>
+                <p class="text-xs text-[#6e6e73] mt-0.5">
+                  Select a ticket to calculate parking fee and exit
+                </p>
+              </div>
+
+              <!-- Optional simulated exit time -->
+              <div class="flex flex-col gap-1 w-full sm:w-auto">
+                <label
+                  for="sim-exit-time"
+                  class="text-[11px] font-semibold text-[#8e8e93] uppercase tracking-wider sm:text-right"
+                >
+                  Exit Time Override
+                </label>
+                <input
+                  type="datetime-local"
+                  id="sim-exit-time"
+                  title="Override Exit Time"
+                  class="text-xs sm:text-[13px] px-3 py-1.5 rounded-full bg-[#f5f5f7] text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-parkwise-accent border border-transparent transition-all w-full"
+                />
+              </div>
+            </div>
+
+            <!-- Search Input & Filter Button -->
+            <div
+              class="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#f5f5f7]"
+            >
+              <input
+                type="text"
+                id="search-ticket-input"
+                placeholder="Search by Ticket ID (e.g. 25)..."
+                class="flex-1 rounded-full bg-[#f5f5f7] px-4 sm:px-5 py-2.5 text-sm sm:text-[15px] text-[#1d1d1f] placeholder-[#8e8e93] focus:outline-none focus:ring-2 focus:ring-parkwise-accent transition-all"
+              />
+              <div class="flex gap-2">
+                <button
+                  id="btn-search"
+                  type="button"
+                  class="flex-1 sm:flex-initial px-5 py-2.5 rounded-full bg-[#1d1d1f] hover:bg-[#3a3a3c] active:scale-95 text-white text-xs sm:text-sm font-semibold transition-all duration-150 cursor-pointer text-center"
+                >
+                  Search
+                </button>
+                <button
+                  id="btn-clear-search"
+                  type="button"
+                  class="hidden px-4 py-2.5 rounded-full bg-[#f5f5f7] hover:bg-[#e5e5ea] text-[#6e6e73] text-xs font-semibold transition-all duration-150 cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ticket Cards Container (Injected by app.js) -->
+          <div id="tickets-list" class="flex flex-col gap-3 sm:gap-4"></div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ═════════════════════════════════════════════════════════
+       CHECKOUT MODAL (Responsive with scrolling fallback)
+  ══════════════════════════════════════════════════════════ -->
+    <div
+      id="exit-modal"
+      class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
+    >
+      <div
+        class="modal-enter bg-white rounded-apple-2xl w-full max-w-md p-6 sm:p-8 flex flex-col gap-5 shadow-2xl my-auto"
+      >
+        <div
+          class="flex items-center justify-between border-b border-[#f5f5f7] pb-3"
         >
-          Cancel
-        </button>
-        <button
-          id="btn-pay"
-          type="button"
-          class="px-6 py-2.5 rounded-full bg-[#1d1d1f] text-white hover:bg-[#3a3a3c] active:scale-95 text-sm font-semibold transition-all duration-150 cursor-pointer"
+          <div>
+            <p
+              class="text-[11px] font-semibold tracking-widest uppercase text-[#8e8e93]"
+            >
+              Customer Checkout
+            </p>
+            <h3
+              class="text-xl sm:text-2xl font-bold tracking-tight text-[#1d1d1f]"
+            >
+              Pay &amp; Exit
+            </h3>
+          </div>
+          <button
+            id="btn-modal-close-x"
+            class="text-[#8e8e93] hover:text-[#1d1d1f] text-2xl font-semibold leading-none p-1"
+          >
+            ×
+          </button>
+        </div>
+
+        <!-- Ticket Summary -->
+        <div
+          class="bg-[#f5f5f7] rounded-apple-xl p-4 sm:p-5 flex flex-col gap-2.5 text-sm sm:text-[15px]"
         >
-          Pay &amp; Exit
-        </button>
-        <button
-          id="btn-close"
-          type="button"
-          class="hidden px-6 py-2.5 rounded-full bg-[#1d1d1f] text-white hover:bg-[#3a3a3c] text-sm font-semibold transition-colors cursor-pointer"
+          <div class="flex justify-between items-baseline">
+            <span class="text-[#6e6e73] font-medium">Ticket ID</span>
+            <strong id="co-ticket-id" class="font-bold text-[#1d1d1f]"></strong>
+          </div>
+          <div class="flex justify-between items-baseline">
+            <span class="text-[#6e6e73] font-medium">Assigned Slot</span>
+            <span class="font-semibold text-[#1d1d1f]">
+              Slot <span id="co-slot-id"></span>
+              <span class="text-[#6e6e73] font-normal">
+                · Floor <span id="co-floor"></span
+              ></span>
+            </span>
+          </div>
+          <div class="flex justify-between items-baseline">
+            <span class="text-[#6e6e73] font-medium">Entry time</span>
+            <span
+              id="co-entry-time"
+              class="font-medium text-[#1d1d1f] text-xs sm:text-sm"
+            ></span>
+          </div>
+
+          <div class="border-t border-[#e5e5ea] my-1"></div>
+
+          <div class="flex items-center justify-between">
+            <span
+              class="text-xs font-bold tracking-widest uppercase text-[#8e8e93]"
+              >Status</span
+            >
+            <span
+              id="co-status-pill"
+              class="px-3 py-0.5 rounded-full bg-[#e5e5ea] text-[#1d1d1f] text-xs font-bold tracking-wide"
+              >—</span
+            >
+          </div>
+          <div class="mt-1 text-center py-2">
+            <p
+              class="text-xs text-[#8e8e93] font-medium uppercase tracking-widest mb-1"
+            >
+              Total Fee Due
+            </p>
+            <p
+              id="co-fee-display"
+              class="text-4xl sm:text-5xl font-extrabold tracking-tight text-parkwise-accent"
+            >
+              ₱—
+            </p>
+          </div>
+        </div>
+
+        <!-- Cash Payment Form -->
+        <div id="payment-section" class="flex flex-col gap-2">
+          <label
+            for="cash-input"
+            class="text-sm sm:text-[15px] font-semibold text-[#1d1d1f]"
+            >Cash Received (₱)</label
+          >
+          <p class="text-xs text-[#8e8e93]">
+            Accepted bills: 20 · 50 · 100 · 500 · 1,000
+          </p>
+          <input
+            type="number"
+            id="cash-input"
+            placeholder="Enter payment (e.g. 100)"
+            step="10"
+            class="w-full rounded-apple-md bg-[#f5f5f7] px-4 py-3 text-base font-semibold text-[#1d1d1f] focus:outline-none focus:ring-2 focus:ring-parkwise-accent transition-all"
+          />
+          <p
+            id="payment-error"
+            class="hidden text-xs font-semibold text-red-500 mt-1"
+          ></p>
+        </div>
+
+        <!-- Payment Receipt (Shown upon completion) -->
+        <div
+          id="receipt-section"
+          class="hidden flex-col gap-3 bg-emerald-50 border border-emerald-100 rounded-apple-xl p-5 text-center"
         >
-          Done
-        </button>
+          <p class="text-sm sm:text-[15px] font-bold text-emerald-700">
+            ✓ Payment Successful
+          </p>
+          <p
+            class="text-[#6e6e73] text-xs uppercase tracking-widest font-semibold mt-1"
+          >
+            Change Returned
+          </p>
+          <p class="text-3xl sm:text-4xl font-extrabold text-[#1d1d1f]">
+            ₱<span id="co-change"></span>
+          </p>
+          <div
+            id="co-breakdown"
+            class="mt-2 text-left text-xs sm:text-sm text-[#3a3a3c] border-t border-emerald-200/60 pt-2"
+          ></div>
+        </div>
+
+        <!-- Modal Action Buttons -->
+        <div class="flex justify-end items-center gap-2.5 pt-2">
+          <button
+            id="btn-cancel"
+            type="button"
+            class="px-5 py-2.5 rounded-full bg-[#f5f5f7] text-[#1d1d1f] text-sm font-semibold hover:bg-[#e5e5ea] transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            id="btn-pay"
+            type="button"
+            class="px-6 py-2.5 rounded-full bg-[#1d1d1f] text-white hover:bg-[#3a3a3c] active:scale-95 text-sm font-semibold transition-all duration-150 cursor-pointer"
+          >
+            Pay &amp; Exit
+          </button>
+          <button
+            id="btn-close"
+            type="button"
+            class="hidden px-6 py-2.5 rounded-full bg-[#1d1d1f] text-white hover:bg-[#3a3a3c] text-sm font-semibold transition-colors cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <script src="app.js"></script>
-</body>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="app.js"></script>
+  </body>
 </html>
