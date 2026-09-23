@@ -431,9 +431,9 @@ app.get("/api/kpis", (req, res) => {
     });
   });
 });
-// GET /api/analytics/turnover
+// GET /api/analytics/turnover and /api/revenue-per-space
 // Detailed turnover and revenue information
-app.get("/api/analytics/turnover", (req, res) => {
+app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
   const date = req.query.date;
 
   let dateFilter = "";
