@@ -260,7 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!tickets || tickets.length === 0) {
       ticketsList.innerHTML = `
               <div class="bg-white rounded-apple-2xl shadow-sm px-6 py-8 text-center border border-black/5">
-                <div class="text-3xl mb-2">🅿️</div>
+                <div class="text-3xl mb-2 font-bold text-parkwise-accent">P</div>
                 <p class="text-[#1d1d1f] text-base font-semibold mb-1">No Active Tickets</p>
                 <p class="text-[#6e6e73] text-[13px] max-w-sm mx-auto">
                   Click the <strong>"Enter Lot"</strong> button on the left to park a vehicle and issue a ticket.
@@ -275,8 +275,8 @@ document.addEventListener("DOMContentLoaded", () => {
         "bg-white rounded-apple-2xl shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-black/5 hover:border-black/10 transition-colors";
       card.innerHTML = `
               <div class="flex items-center gap-3.5 min-w-0">
-                <div class="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0 text-lg">
-                  🎫
+                <div class="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0 text-sm font-bold text-[#6e6e73]">
+                  TKT
                 </div>
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <div class="flex items-center gap-2">
@@ -312,7 +312,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Immediate UI feedback
       btnEntry.disabled = true;
       const prevContent = btnEntry.innerHTML;
-      btnEntry.innerHTML = `<span>⏳</span><span>Entering...</span>`;
+      btnEntry.innerHTML = `<span>Entering...</span>`;
 
       try {
         const res = await fetch("/api/entry", {
@@ -327,7 +327,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = await res.json();
 
         if (!res.ok) {
-          showToast(`⚠️ ${data.error || "Unable to enter lot."}`, true);
+          showToast(`! ${data.error || "Unable to enter lot."}`, true);
         } else {
           showToast(
             `✓ Car entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}) — Ticket #<strong>${data.ticketId}</strong>`,
@@ -343,7 +343,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (err) {
         console.error("Entry error:", err);
         showToast(
-          "⚠️ Could not connect to backend server. Make sure node server is running on port 3000.",
+          "! Could not connect to backend server. Make sure node server is running on port 3000.",
           true,
         );
       } finally {
@@ -362,11 +362,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (isError) {
       entryToast.className =
         "flex items-center gap-3 rounded-apple-xl px-5 py-3.5 shadow-sm text-sm sm:text-[15px] bg-red-50 text-red-700 border border-red-200 mb-6";
-      entryToast.children[0].textContent = "⚠️";
+      entryToast.children[0].textContent = "!";
     } else {
       entryToast.className =
         "flex items-center gap-3 rounded-apple-xl px-5 py-3.5 shadow-sm text-sm sm:text-[15px] bg-emerald-50 text-emerald-900 border border-emerald-200 mb-6";
-      entryToast.children[0].textContent = "🚗";
+      entryToast.children[0].textContent = "i";
     }
 
     entryToast.classList.remove("hidden");
