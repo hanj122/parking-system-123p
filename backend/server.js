@@ -798,6 +798,21 @@ app.get("/api/analytics/revenue-trend", (req, res) => {
   });
 });
 
+// GET /api/recent-events - Real-time activity feed
+app.get("/api/recent-events", (req, res) => {
+  const limit = Math.min(50, parseInt(req.query.limit, 10) || 20);
+  const query = `
+    SELECT id, type, severity, message, floor, slot_id, ticket_id, source, created_at
+    FROM reports
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `;
+  db.all(query, [limit], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
 app.get("/api/reports", (req, res) => {
   db.all(
     `SELECT * FROM reports
