@@ -19,7 +19,6 @@ A clean, modern dashboard web application for a 3-story parking system.
    node backend/server.js
    ```
 
-The ticket map uses Leaflet and shows one movable marker for the ticket location.
 The demand forecast form stores only the event nature, date, time, and category.
 
 ## Website Pages & Architecture

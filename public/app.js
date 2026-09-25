@@ -8,17 +8,17 @@ document.addEventListener("DOMContentLoaded", () => {
   const simExitTime = document.getElementById("sim-exit-time");
   const entryToast = document.getElementById("entry-toast");
   const entryToastMsg = document.getElementById("entry-toast-msg");
-  const ticketMapElement = document.getElementById("ticket-map");
-  const ticketMapStatus = document.getElementById("ticket-map-status");
-
   // Modal refs
   const modal = document.getElementById("exit-modal");
   const coTicketId = document.getElementById("co-ticket-id");
   const coSlotId = document.getElementById("co-slot-id");
   const coFloor = document.getElementById("co-floor");
   const coEntryTime = document.getElementById("co-entry-time");
+  const coExitTime = document.getElementById("co-exit-time");
+  const coRateTier = document.getElementById("co-rate-tier");
   const coStatusPill = document.getElementById("co-status-pill");
   const coFeeDisplay = document.getElementById("co-fee-display");
+  const coFeeNote = document.getElementById("co-fee-note");
   const cashInput = document.getElementById("cash-input");
   const paymentError = document.getElementById("payment-error");
   const paymentSection = document.getElementById("payment-section");
@@ -39,40 +39,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let allTickets = [];
   let searchedTicketId = null;
   let toastTimeout = null;
-  let ticketMap = null;
-  let ticketMarker = null;
-  let ticketMapLocation = null;
-
-  initializeTicketMap();
-
-  async function initializeTicketMap() {
-    if (!ticketMapElement) return;
-
-    try {
-      if (!window.L) throw new Error("Leaflet failed to load");
-      ticketMap = L.map(ticketMapElement).setView([14.5995, 120.9842], 11);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors",
-      }).addTo(ticketMap);
-      ticketMap.on("click", (event) => {
-        ticketMapLocation = {
-          latitude: event.latlng.lat,
-          longitude: event.latlng.lng,
-        };
-        if (!ticketMarker) {
-          ticketMarker = L.marker(event.latlng).addTo(ticketMap);
-        } else {
-          ticketMarker.setLatLng(event.latlng);
-        }
-        if (ticketMapStatus) ticketMapStatus.textContent = "Location pinned";
-      });
-      setTimeout(() => ticketMap.invalidateSize(), 50);
-    } catch (error) {
-      console.error("Ticket map failed to load:", error);
-      ticketMapElement.innerHTML =
-        '<p class="p-4 text-xs text-red-600">Leaflet map could not be loaded.</p>';
-    }
-  }
 
   // ── Live polling ──────────────────────────────────────────────────────────
   fetchStatus();
@@ -320,8 +286,6 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             entryTime,
-            mapLatitude: ticketMapLocation?.latitude ?? null,
-            mapLongitude: ticketMapLocation?.longitude ?? null,
           }),
         });
         const data = await res.json();
@@ -330,7 +294,7 @@ document.addEventListener("DOMContentLoaded", () => {
           showToast(`! ${data.error || "Unable to enter lot."}`, true);
         } else {
           showToast(
-            `✓ Car entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}) — Ticket #<strong>${data.ticketId}</strong>`,
+            `✓ Car entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}) - Ticket #<strong>${data.ticketId}</strong>`,
           );
 
           // Clear search to show the newly parked ticket right away
@@ -386,7 +350,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Reset modal state
     setStatusPill("Pending");
-    if (coFeeDisplay) coFeeDisplay.textContent = "₱—";
+    if (coFeeDisplay) coFeeDisplay.textContent = "₱-";
+    if (coExitTime) coExitTime.textContent = "";
+    if (coRateTier) {
+      coRateTier.textContent = "-";
+      coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#e5e5ea] text-[#1d1d1f]";
+    }
+    if (coFeeNote) coFeeNote.textContent = "";
     if (cashInput) cashInput.value = "";
     if (paymentError) {
       paymentError.textContent = "";
@@ -421,13 +391,42 @@ document.addEventListener("DOMContentLoaded", () => {
         if (coFeeDisplay) coFeeDisplay.textContent = `₱${data.fee}`;
         setStatusPill(data.status);
 
+        if (coExitTime && data.exitTime) {
+          coExitTime.textContent = new Date(data.exitTime).toLocaleString();
+        }
+
+        if (coRateTier) {
+          if (data.status === "towed") {
+            coRateTier.textContent = "Towed";
+            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700";
+          } else if (data.isPeak) {
+            coRateTier.textContent = "Peak Demand (1.5x)";
+            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800";
+          } else {
+            coRateTier.textContent = "Standard Rate";
+            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700";
+          }
+        }
+
+        if (coFeeNote) {
+          if (data.status === "towed") {
+            coFeeNote.textContent = "Stay exceeded 24 hours. Vehicle impounded.";
+          } else if (data.isOvernight) {
+            coFeeNote.textContent = `Includes ₱300 overnight surcharge (${data.rateType})`;
+          } else if (data.isPeak) {
+            coFeeNote.textContent = "Commute surge multiplier active: ₱75 first 3 hrs / ₱30 per additional hr";
+          } else {
+            coFeeNote.textContent = "Standard rate: ₱50 first 3 hrs / ₱20 per additional hr";
+          }
+        }
+
         if (data.status === "towed") {
           if (paymentSection) paymentSection.classList.add("hidden");
           if (btnPay) btnPay.textContent = "Acknowledge TOWED";
         }
       } else {
         if (coFeeDisplay) coFeeDisplay.textContent = "Error";
-        showPaymentError(data.error);
+        showPaymentError(data.error || "Unable to compute fee.");
       }
     } catch (err) {
       console.error(err);
@@ -436,6 +435,18 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
   };
+
+  // Re-calculate checkout fee in real-time when sim-exit-time changes
+  if (simExitTime) {
+    simExitTime.addEventListener("change", () => {
+      if (currentTicketId && modal && !modal.classList.contains("hidden")) {
+        const ticket = allTickets.find((t) => t.id === currentTicketId);
+        if (ticket) {
+          window.openCheckout(ticket.id, ticket.slot_id, ticket.floor, ticket.entry_time);
+        }
+      }
+    });
+  }
 
   function setStatusPill(status) {
     if (!coStatusPill) return;

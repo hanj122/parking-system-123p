@@ -49,52 +49,106 @@ function isValidPaymentAmount(amount) {
   return amount % 10 === 0;
 }
 
-// Calculate fee based on entry and exit time
+// Helper to determine if a given date falls within peak demand hours
+// Morning Peak: 7:00 AM - 10:00 AM (7, 8, 9)
+// Evening Peak: 5:00 PM - 8:00 PM (17, 18, 19)
+function isPeakHour(date) {
+  const h = date.getHours();
+  return (h >= 7 && h < 10) || (h >= 17 && h < 20);
+}
+
+// Checks if any portion of the stay occurred within peak demand hours
+function checkIsPeakSession(entryDate, exitDate) {
+  if (isPeakHour(entryDate) || isPeakHour(exitDate)) {
+    return true;
+  }
+  let cur = new Date(entryDate.getTime() + 60 * 60 * 1000);
+  while (cur < exitDate) {
+    if (isPeakHour(cur)) return true;
+    cur = new Date(cur.getTime() + 60 * 60 * 1000);
+  }
+  return false;
+}
+
+// Calculate fee based on entry and exit time with dynamic pricing
 function calculateFeeAndStatus(entryTime, exitTime) {
   const entryDate = new Date(entryTime);
   const exitDate = new Date(exitTime);
 
   const diffMs = exitDate - entryDate;
-  const diffHours = diffMs / (1000 * 60 * 60);
-
-  if (diffHours >= 24) {
-    return { fee: 0, status: "towed" };
+  if (isNaN(diffMs) || diffMs < 0) {
+    return {
+      fee: 0,
+      status: "error",
+      error: "Exit time cannot be earlier than entry time.",
+      isPeak: false,
+      isOvernight: false,
+      rateType: "Invalid"
+    };
   }
 
+  const diffHours = diffMs / (1000 * 60 * 60);
+
+  // 1. Towing policy (>= 24 hours stay)
+  if (diffHours >= 24) {
+    return {
+      fee: 0,
+      status: "towed",
+      isPeak: false,
+      isOvernight: false,
+      rateType: "Towed",
+      durationHours: Number(diffHours.toFixed(2))
+    };
+  }
+
+  // 2. Dynamic rate determination (Peak 1.5x multiplier)
+  const isPeak = checkIsPeakSession(entryDate, exitDate);
+  const baseRate = isPeak ? 75 : 50;       // 1.5x surge: ₱75 vs ₱50
+  const hourlyRate = isPeak ? 30 : 20;     // 1.5x surge: ₱30 vs ₱20
+
+  // 3. Overnight surcharge check (+₱300 after 10:00 PM)
   let crosses10PM = false;
   let tenPM = new Date(entryDate);
   tenPM.setHours(22, 0, 0, 0);
 
-  if (entryDate > tenPM) {
+  if (entryDate >= tenPM) {
     tenPM.setDate(tenPM.getDate() + 1);
   }
 
-  if (exitDate > tenPM) {
+  if (exitDate >= tenPM) {
     crosses10PM = true;
   }
 
   let fee = 0;
-
   if (crosses10PM) {
-    const hoursBefore10PM = Math.ceil((tenPM - entryDate) / (1000 * 60 * 60));
+    const hoursBefore10PM = Math.max(0, Math.ceil((tenPM - entryDate) / (1000 * 60 * 60)));
     let pre10Fee = 0;
     if (hoursBefore10PM > 0) {
-      pre10Fee = 50;
+      pre10Fee = baseRate;
       if (hoursBefore10PM > 3) {
-        pre10Fee += (hoursBefore10PM - 3) * 20;
+        pre10Fee += (hoursBefore10PM - 3) * hourlyRate;
       }
     }
     fee = 300 + pre10Fee;
   } else {
-    const fullHours = Math.ceil(diffHours);
+    const fullHours = Math.max(1, Math.ceil(diffHours));
     if (fullHours <= 3) {
-      fee = 50;
+      fee = baseRate;
     } else {
-      fee = 50 + (fullHours - 3) * 20;
+      fee = baseRate + (fullHours - 3) * hourlyRate;
     }
   }
 
-  return { fee, status: "completed" };
+  return {
+    fee,
+    status: "completed",
+    isPeak,
+    isOvernight: crosses10PM,
+    rateType: isPeak ? "Peak Surge (1.5x)" : "Standard Rate",
+    baseRate,
+    hourlyRate,
+    durationHours: Number(diffHours.toFixed(2))
+  };
 }
 
 function calculateChangeBreakdown(change) {
@@ -249,11 +303,19 @@ app.get("/api/ticket/:id/fee", (req, res) => {
       if (!ticket)
         return res.status(404).json({ error: "Active ticket not found" });
 
-      const { fee, status } = calculateFeeAndStatus(
+      const feeResult = calculateFeeAndStatus(
         ticket.entry_time,
         exitTime,
       );
-      res.json({ fee, status, entryTime: ticket.entry_time, exitTime });
+      if (feeResult.status === "error") {
+        return res.status(400).json({ error: feeResult.error });
+      }
+
+      res.json({
+        ...feeResult,
+        entryTime: ticket.entry_time,
+        exitTime,
+      });
     },
   );
 });
@@ -271,10 +333,15 @@ app.post("/api/exit", (req, res) => {
       if (!ticket)
         return res.status(404).json({ error: "Active ticket not found" });
 
-      const { fee, status } = calculateFeeAndStatus(
+      const feeResult = calculateFeeAndStatus(
         ticket.entry_time,
         exitTime,
       );
+      if (feeResult.status === "error") {
+        return res.status(400).json({ error: feeResult.error });
+      }
+
+      const { fee, status } = feeResult;
 
       if (status === "towed") {
         db.serialize(() => {
@@ -315,7 +382,7 @@ app.post("/api/exit", (req, res) => {
 
         return res.status(400).json({
           error:
-            "Invalid cash amount. Only 20, 50, 100, 500, 1000 bill combinations are accepted.",
+            "Invalid cash amount. Please input a valid amount.",
         });
       }
 
