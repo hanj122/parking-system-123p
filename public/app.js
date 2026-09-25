@@ -36,9 +36,35 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnClearSearch = document.getElementById("btn-clear-search");
 
   let currentTicketId = null;
+  let currentFee = 0;
   let allTickets = [];
   let searchedTicketId = null;
   let toastTimeout = null;
+  let currentTicketsPage = 1;
+  const TICKETS_PER_PAGE = 10;
+  let currentTicketsData = [];
+
+  window.setQuickAmount = function(amount) {
+    if (!cashInput) return;
+    if (amount === 'exact') {
+      cashInput.value = currentFee || 50;
+    } else {
+      cashInput.value = amount;
+    }
+    if (paymentError) {
+      paymentError.textContent = "";
+      paymentError.classList.add("hidden");
+    }
+    cashInput.focus();
+  };
+
+  function goToTicketsPage(page) {
+    const totalPages = Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
+    if (page < 1 || page > totalPages) return;
+    currentTicketsPage = page;
+    renderTickets(currentTicketsData, false);
+  }
+  window.goToTicketsPage = goToTicketsPage;
 
   // ── Live polling ──────────────────────────────────────────────────────────
   fetchStatus();
@@ -158,16 +184,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     searchedTicketId = parseInt(val, 10);
     if (btnClearSearch) btnClearSearch.classList.remove("hidden");
+    currentTicketsPage = 1;
 
     const found = allTickets.find((t) => t.id === searchedTicketId);
     if (found) {
-      renderTickets([found]);
+      renderTickets([found], true);
     } else {
+      const ticketsPagination = document.getElementById("tickets-pagination");
+      if (ticketsPagination) ticketsPagination.innerHTML = "";
       ticketsList.innerHTML = `
               <div class="bg-white rounded-apple-2xl shadow-sm px-6 py-8 text-center border border-black/5">
                 <p class="text-[#1d1d1f] text-base font-semibold mb-1">Ticket #${searchedTicketId} Not Found</p>
                 <p class="text-[#6e6e73] text-[13px]">This ticket does not exist or has already been paid and exited.</p>
-                <button onclick="window.clearSearchUI()" class="mt-3 px-4 py-1.5 rounded-full bg-[#f5f5f7] text-xs font-semibold text-[#1d1d1f] hover:bg-[#e5e5ea]">
+                <button onclick="window.clearSearchUI()" class="mt-3 px-4 py-1.5 rounded-full bg-[#f5f5f7] text-xs font-semibold text-[#1d1d1f] hover:bg-[#e5e5ea] cursor-pointer">
                   Show All Tickets
                 </button>
               </div>`;
@@ -176,9 +205,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function clearSearch() {
     searchedTicketId = null;
+    currentTicketsPage = 1;
     if (searchInput) searchInput.value = "";
     if (btnClearSearch) btnClearSearch.classList.add("hidden");
-    renderTickets(allTickets);
+    renderTickets(allTickets, true);
   }
   window.clearSearchUI = clearSearch;
 
@@ -219,11 +249,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function renderTickets(tickets) {
+  function renderTickets(tickets, resetPage = false) {
     if (!ticketsList) return;
-    ticketsList.innerHTML = "";
+    currentTicketsData = tickets || [];
+    const ticketsPagination = document.getElementById("tickets-pagination");
 
-    if (!tickets || tickets.length === 0) {
+    if (!currentTicketsData || currentTicketsData.length === 0) {
       ticketsList.innerHTML = `
               <div class="bg-white rounded-apple-2xl shadow-sm px-6 py-8 text-center border border-black/5">
                 <div class="text-3xl mb-2 font-bold text-parkwise-accent">P</div>
@@ -232,10 +263,24 @@ document.addEventListener("DOMContentLoaded", () => {
                   Click the <strong>"Enter Lot"</strong> button on the left to park a vehicle and issue a ticket.
                 </p>
               </div>`;
+      if (ticketsPagination) ticketsPagination.innerHTML = "";
       return;
     }
 
-    tickets.forEach((t) => {
+    const totalPages = Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
+    if (resetPage) {
+      currentTicketsPage = 1;
+    } else {
+      if (currentTicketsPage > totalPages) currentTicketsPage = totalPages;
+      if (currentTicketsPage < 1) currentTicketsPage = 1;
+    }
+
+    const startIndex = (currentTicketsPage - 1) * TICKETS_PER_PAGE;
+    const endIndex = Math.min(startIndex + TICKETS_PER_PAGE, currentTicketsData.length);
+    const pagedTickets = currentTicketsData.slice(startIndex, endIndex);
+
+    ticketsList.innerHTML = "";
+    pagedTickets.forEach((t) => {
       const card = document.createElement("div");
       card.className =
         "bg-white rounded-apple-2xl shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-black/5 hover:border-black/10 transition-colors";
@@ -262,6 +307,76 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
       ticketsList.appendChild(card);
     });
+
+    // Render pagination controls if multiple pages exist
+    if (ticketsPagination) {
+      if (totalPages <= 1) {
+        ticketsPagination.innerHTML = "";
+      } else {
+        let pageBtnsHtml = "";
+
+        // Prev button
+        pageBtnsHtml += `
+          <button
+            onclick="window.goToTicketsPage(${currentTicketsPage - 1})"
+            ${currentTicketsPage === 1 ? 'disabled class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-black/5 text-xs font-semibold text-[#8e8e93] opacity-40 cursor-not-allowed bg-[#f5f5f7] flex items-center justify-center"' : 'class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-black/5 bg-white text-xs font-semibold text-[#1d1d1f] hover:bg-[#f5f5f7] cursor-pointer shadow-xs flex items-center justify-center"'}
+            title="Previous Page"
+            aria-label="Previous Page"
+          >
+            &larr;
+          </button>
+        `;
+
+        for (let p = 1; p <= totalPages; p++) {
+          if (
+            p === 1 ||
+            p === totalPages ||
+            (p >= currentTicketsPage - 1 && p <= currentTicketsPage + 1)
+          ) {
+            const isActive = p === currentTicketsPage;
+            pageBtnsHtml += `
+              <button
+                onclick="window.goToTicketsPage(${p})"
+                class="${
+                  isActive
+                    ? 'bg-[#1d1d1f] text-white font-bold'
+                    : 'bg-white text-[#1d1d1f] hover:bg-[#f5f5f7] border border-black/5 font-medium'
+                } w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-xs transition-colors cursor-pointer shadow-xs"
+                aria-label="Go to page ${p}"
+              >
+                ${p}
+              </button>
+            `;
+          } else if (
+            p === currentTicketsPage - 2 ||
+            p === currentTicketsPage + 2
+          ) {
+            pageBtnsHtml += `<span class="px-1 text-xs text-[#8e8e93]">...</span>`;
+          }
+        }
+
+        // Next button
+        pageBtnsHtml += `
+          <button
+            onclick="window.goToTicketsPage(${currentTicketsPage + 1})"
+            ${currentTicketsPage === totalPages ? 'disabled class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-black/5 text-xs font-semibold text-[#8e8e93] opacity-40 cursor-not-allowed bg-[#f5f5f7] flex items-center justify-center"' : 'class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl border border-black/5 bg-white text-xs font-semibold text-[#1d1d1f] hover:bg-[#f5f5f7] cursor-pointer shadow-xs flex items-center justify-center"'}
+            title="Next Page"
+            aria-label="Next Page"
+          >
+            &rarr;
+          </button>
+        `;
+
+        ticketsPagination.innerHTML = `
+          <p class="text-xs text-[#6e6e73] font-medium">
+            Showing <span class="font-semibold text-[#1d1d1f]">${startIndex + 1}</span> to <span class="font-semibold text-[#1d1d1f]">${endIndex}</span> of <span class="font-semibold text-[#1d1d1f]">${currentTicketsData.length}</span> tickets
+          </p>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            ${pageBtnsHtml}
+          </div>
+        `;
+      }
+    }
   }
 
   // ── Entry button (Reliable with immediate feedback) ────────────────────────
@@ -388,7 +503,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
 
       if (res.ok) {
-        if (coFeeDisplay) coFeeDisplay.textContent = `₱${data.fee}`;
+        currentFee = Number(data.fee) || 0;
+        if (coFeeDisplay) coFeeDisplay.textContent = `₱${currentFee}`;
         setStatusPill(data.status);
 
         if (coExitTime && data.exitTime) {
@@ -494,6 +610,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (paymentError) paymentError.classList.add("hidden");
 
+      if (isNaN(amountReceived) || amountReceived < 50 || amountReceived > 1000) {
+        showPaymentError("Please input any amount from ₱50 to ₱1,000.");
+        return;
+      }
+
+      if (currentFee > 0 && amountReceived < currentFee) {
+        showPaymentError(`Insufficient amount. Total fee is ₱${currentFee}.`);
+        return;
+      }
+
       btnPay.disabled = true;
       btnPay.textContent = "Processing...";
 
@@ -516,7 +642,7 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        // Payment Success — show receipt
+        // Payment Success: show receipt
         if (paymentSection) paymentSection.classList.add("hidden");
         if (receiptSection) {
           receiptSection.classList.remove("hidden");
@@ -530,14 +656,14 @@ document.addEventListener("DOMContentLoaded", () => {
           if (coChange) coChange.textContent = "0";
           if (coBreakdown)
             coBreakdown.innerHTML =
-              '<p class="text-[#8e8e93] text-xs">No fee collected — vehicle was marked as towed (>24h stay).</p>';
+              '<p class="text-[#8e8e93] text-xs">No fee collected: vehicle was marked as towed (>24h stay).</p>';
         } else {
           if (coChange) coChange.textContent = data.changeGiven;
 
           if (data.changeGiven === 0) {
             if (coBreakdown)
               coBreakdown.innerHTML =
-                '<p class="text-[#6e6e73] text-xs mt-1">Exact payment received — no change needed.</p>';
+                '<p class="text-[#6e6e73] text-xs mt-1">Exact payment received: no change needed.</p>';
           } else {
             const entries = Object.entries(data.changeBreakdown || {})
               .filter(([, count]) => count > 0)
@@ -545,11 +671,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const rows = entries
               .map(
-                ([denom, count]) => `
-                          <div class="flex justify-between py-1 border-b border-dashed border-emerald-200/50 last:border-0">
-                            <span class="font-semibold text-[#1d1d1f]">₱${denom} bill</span>
-                            <span class="text-[#6e6e73] font-medium">× ${count}</span>
-                          </div>`,
+                ([denom, count]) => {
+                  const denomNum = parseInt(denom, 10);
+                  const unitLabel = denomNum >= 20 ? 'bill' : 'coin';
+                  return `
+                    <div class="flex justify-between py-1 border-b border-dashed border-emerald-200/50 last:border-0">
+                      <span class="font-semibold text-[#1d1d1f]">₱${denom} ${unitLabel}</span>
+                      <span class="text-[#6e6e73] font-medium">× ${count}</span>
+                    </div>`;
+                }
               )
               .join("");
 

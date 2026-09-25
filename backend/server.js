@@ -7,6 +7,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
+app.use("/assets", express.static(path.join(__dirname, "../public/assets")));
+app.use("/dashboard/assets", express.static(path.join(__dirname, "../public/assets")));
 
 // ── Page routes (Clean friendly aliases) ───────────────────────────
 app.get("/", (req, res) => {
@@ -24,29 +26,17 @@ app.get("/login", (req, res) => {
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/login.html"));
 });
-app.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/dashboard.html"));
-});
-app.get("/admin-dashboard", (req, res) => {
+app.get(/^\/(dashboard|admin-dashboard)(\/.*)?$/, (req, res) => {
   res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
 app.get("/reports", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/reports.html"));
 });
 
-// Helper to check if a number can be formed by 20, 50, 100, 500, 1000
+// Helper to validate payment amount: accepts any amount from 50 to 1000
 function isValidPaymentAmount(amount) {
-  if (amount <= 0 || !Number.isInteger(amount)) return false;
-
-  // Since 100, 500, 1000 are multiples of 20 and 50 (wait, 100=50x2, 500=50x10, 1000=50x20),
-  // any combination of these bills can be reduced to just combinations of 20 and 50.
-  // We just need to check if amount can be written as 20x + 50y.
-
-  // Valid amounts for 20x + 50y:
-  if (amount === 10 || amount === 30) return false;
-  // For anything else, if it's a multiple of 10, we can always form it (40, 50, 60, 70, 80...).
-  // Wait, are there any other constraints? Only multiples of 10.
-  return amount % 10 === 0;
+  if (typeof amount !== "number" || isNaN(amount)) return false;
+  return amount >= 50 && amount <= 1000;
 }
 
 // Helper to determine if a given date falls within peak demand hours
@@ -374,7 +364,7 @@ app.post("/api/exit", (req, res) => {
       }
 
       if (!isValidPaymentAmount(amountReceived)) {
-        logReport("payment_issue", "Invalid cash amount rejected", {
+        logReport("payment_issue", `Invalid cash amount rejected: ₱${amountReceived}`, {
           severity: "warning",
           slotId: ticket.slot_id,
           ticketId: ticketId,
@@ -382,7 +372,7 @@ app.post("/api/exit", (req, res) => {
 
         return res.status(400).json({
           error:
-            "Invalid cash amount. Please input a valid amount.",
+            "Invalid cash amount. Please input an amount from ₱50 to ₱1,000.",
         });
       }
 
@@ -433,66 +423,187 @@ app.post("/api/exit", (req, res) => {
 // GET /api/kpis
 // Dashboard KPI data
 app.get("/api/kpis", (req, res) => {
+  const reqDate = req.query.date;
+
   const totalSpacesQuery = `
     SELECT COUNT(*) AS total_spaces
     FROM slots
   `;
 
-  const revenueQuery = `
+  const activeSpacesQuery = `
+    SELECT COUNT(*) AS active_spaces
+    FROM tickets
+    WHERE status = 'active'
+  `;
+
+  const activeAlertsQuery = `
+    SELECT COUNT(*) AS active_alerts
+    FROM reports
+    WHERE severity != 'info'
+  `;
+
+  const totalRevenueQuery = `
     SELECT COALESCE(SUM(fee), 0) AS total_revenue
     FROM tickets
     WHERE status = 'completed'
   `;
 
-  const turnoverQuery = `
+  const completedSessionsQuery = `
     SELECT COUNT(*) AS completed_sessions
     FROM tickets
     WHERE status = 'completed'
   `;
 
   db.get(totalSpacesQuery, (err, spacesRow) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+    if (err) return res.status(500).json({ error: err.message });
+    const totalSpaces = Number(spacesRow?.total_spaces || 0);
 
-    db.get(revenueQuery, (err, revenueRow) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    db.get(activeSpacesQuery, (err, activeRow) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const activeSpaces = Number(activeRow?.active_spaces || 0);
 
-      db.get(turnoverQuery, (err, turnoverRow) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
+      db.get(activeAlertsQuery, (err, alertsRow) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const activeAlerts = Number(alertsRow?.active_alerts || 0);
 
-        const totalSpaces = Number(spacesRow.total_spaces || 0);
-        const totalRevenue = Number(revenueRow.total_revenue || 0);
-        const completedSessions = Number(
-          turnoverRow.completed_sessions || 0
-        );
+        db.get(totalRevenueQuery, (err, revenueRow) => {
+          if (err) return res.status(500).json({ error: err.message });
+          const totalRevenue = Number(revenueRow?.total_revenue || 0);
 
-        const revenuePerAvailableSpace =
-          totalSpaces > 0
-            ? totalRevenue / totalSpaces
-            : 0;
+          db.get(completedSessionsQuery, (err, turnoverRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            const completedSessions = Number(turnoverRow?.completed_sessions || 0);
 
-        const turnoverRate =
-          totalSpaces > 0
-            ? completedSessions / totalSpaces
-            : 0;
+            // Determine target today & yesterday dates
+            const dateQuery = reqDate
+              ? `SELECT date(?) AS today, date(?, '-1 day') AS yesterday`
+              : `SELECT date('now', 'localtime') AS today, date('now', '-1 day', 'localtime') AS yesterday`;
+            const dateParams = reqDate ? [reqDate, reqDate] : [];
 
-        res.json({
-          totalSpaces,
-          totalRevenue,
-          completedSessions,
+            db.get(dateQuery, dateParams, (err, dateRow) => {
+              if (err) return res.status(500).json({ error: err.message });
+              const todayStr = dateRow.today;
+              let yesterdayStr = dateRow.yesterday;
 
-          revenuePerAvailableSpace: Number(
-            revenuePerAvailableSpace.toFixed(2)
-          ),
+              // Check if yesterday has tickets; if not, fallback to the latest date before today
+              const fallbackQuery = `
+                SELECT MAX(DATE(COALESCE(exit_time, entry_time))) AS prev_date
+                FROM tickets
+                WHERE DATE(COALESCE(exit_time, entry_time)) < ?
+              `;
 
-          turnoverRate: Number(
-            turnoverRate.toFixed(2)
-          )
+              db.get(
+                "SELECT COUNT(*) AS c FROM tickets WHERE (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))",
+                [yesterdayStr, yesterdayStr],
+                (err, yCountRow) => {
+                  if (err) return res.status(500).json({ error: err.message });
+
+                  const proceedWithYesterday = (effectiveYesterday) => {
+                    // Aggregate scoped to date range:
+                    // (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))
+                    const dailyAggregateQuery = `
+                      SELECT
+                        COALESCE(SUM(CASE WHEN status = 'completed' THEN fee ELSE 0 END), 0) AS revenue,
+                        COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed_sessions,
+                        COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_sessions,
+                        COUNT(*) AS total_sessions
+                      FROM tickets
+                      WHERE (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))
+                    `;
+
+                    db.get(dailyAggregateQuery, [todayStr, todayStr], (err, todayStats) => {
+                      if (err) return res.status(500).json({ error: err.message });
+
+                      db.get(dailyAggregateQuery, [effectiveYesterday, effectiveYesterday], (err, yestStats) => {
+                        if (err) return res.status(500).json({ error: err.message });
+
+                        const todayRev = Number(todayStats?.revenue || 0);
+                        const todayCompleted = Number(todayStats?.completed_sessions || 0);
+
+                        const yestRev = Number(yestStats?.revenue || 0);
+                        const yestCompleted = Number(yestStats?.completed_sessions || 0);
+
+                        // Revenue per available space for today:
+                        const revenuePerAvailableSpace =
+                          totalSpaces > 0 ? todayRev / totalSpaces : 0;
+                        const yestRevenuePerSpace =
+                          totalSpaces > 0 ? yestRev / totalSpaces : 0;
+
+                        // Revenue delta vs yesterday
+                        let revenuePerAvailableSpaceDelta = "+0.0%";
+                        let revenueDeltaPositive = true;
+                        if (yestRevenuePerSpace > 0) {
+                          const pct = ((revenuePerAvailableSpace - yestRevenuePerSpace) / yestRevenuePerSpace) * 100;
+                          revenuePerAvailableSpaceDelta = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+                          revenueDeltaPositive = pct >= 0;
+                        } else if (revenuePerAvailableSpace > 0) {
+                          revenuePerAvailableSpaceDelta = "+100.0%";
+                          revenueDeltaPositive = true;
+                        }
+
+                        // Current Occupancy: active / total * 100, rounded
+                        const currentOccupancy =
+                          totalSpaces > 0 ? Math.round((activeSpaces / totalSpaces) * 100) : 0;
+
+                        // Yesterday occupancy:
+                        // Estimate yesterday's occupancy from concurrent/sessions
+                        const yestSessions = Number(yestStats?.total_sessions || 0);
+                        const yestEstOccupancy = totalSpaces > 0 ? Math.round((yestSessions * 0.75 / totalSpaces) * 100) : 0;
+                        const occDeltaVal = currentOccupancy - yestEstOccupancy;
+                        const occupancyDelta = `${occDeltaVal >= 0 ? "+" : ""}${occDeltaVal.toFixed(1)}%`;
+
+                        // Turnover Rate: completed / totalSpaces
+                        const turnoverRate =
+                          totalSpaces > 0 ? todayCompleted / totalSpaces : 0;
+                        const yestTurnoverRate =
+                          totalSpaces > 0 ? yestCompleted / totalSpaces : 0;
+                        const toDiff = turnoverRate - yestTurnoverRate;
+                        const turnoverRateDelta = `${toDiff >= 0 ? "+" : ""}${toDiff.toFixed(2)}x`;
+                        const turnoverDeltaPositive = toDiff >= 0;
+
+                        res.json({
+                          // Existing backwards-compatible fields
+                          totalSpaces,
+                          totalRevenue,
+                          completedSessions,
+                          revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
+                          turnoverRate: Number(turnoverRate.toFixed(2)),
+
+                          // Extended fields
+                          activeSpaces,
+                          currentOccupancy,
+                          activeAlerts,
+
+                          todayRevenue: Number(todayRev.toFixed(2)),
+                          todayCompletedSessions: todayCompleted,
+                          yesterdayDate: effectiveYesterday,
+                          todayDate: todayStr,
+
+                          revenuePerAvailableSpaceDelta,
+                          revenueDeltaPositive,
+                          occupancyDelta,
+                          turnoverRateDelta,
+                          turnoverDeltaPositive,
+                        });
+                      });
+                    });
+                  };
+
+                  if (yCountRow && yCountRow.c > 0) {
+                    proceedWithYesterday(yesterdayStr);
+                  } else {
+                    db.get(fallbackQuery, [todayStr], (err, prevRow) => {
+                      if (!err && prevRow && prevRow.prev_date) {
+                        proceedWithYesterday(prevRow.prev_date);
+                      } else {
+                        proceedWithYesterday(yesterdayStr);
+                      }
+                    });
+                  }
+                }
+              );
+            });
+          });
         });
       });
     });
@@ -800,11 +911,13 @@ app.get("/api/analytics/revenue-trend", (req, res) => {
 
 // GET /api/recent-events - Real-time activity feed
 app.get("/api/recent-events", (req, res) => {
-  const limit = Math.min(50, parseInt(req.query.limit, 10) || 20);
+  const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
   const query = `
-    SELECT id, type, severity, message, floor, slot_id, ticket_id, source, created_at
-    FROM reports
-    ORDER BY created_at DESC, id DESC
+    SELECT r.id, r.type, r.severity, r.message, r.floor, r.slot_id, r.ticket_id, r.source, r.created_at,
+           t.fee, t.status AS ticket_status
+    FROM reports r
+    LEFT JOIN tickets t ON r.ticket_id = t.id
+    ORDER BY r.created_at DESC, r.id DESC
     LIMIT ?
   `;
   db.all(query, [limit], (err, rows) => {
