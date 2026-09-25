@@ -665,6 +665,13 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
         };
       });
 
+      const summary = { HIGH: 0, MEDIUM: 0, LOW: 0 };
+      spaces.forEach((sp) => {
+        if (summary[sp.turnoverLevel] !== undefined) {
+          summary[sp.turnoverLevel]++;
+        }
+      });
+
       res.json({
         totalSpaces,
         totalVehicles,
@@ -677,10 +684,117 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
         turnoverRate: Number(
           turnoverRate.toFixed(2)
         ),
+        summary,
         spaces,
         vehicles
       });
     });
+  });
+});
+
+// GET /api/analytics/peak-hours
+app.get("/api/analytics/peak-hours", (req, res) => {
+  const query = `
+    SELECT strftime('%H', entry_time) AS hour, COUNT(*) AS entries
+    FROM tickets
+    WHERE entry_time IS NOT NULL
+    GROUP BY hour
+    ORDER BY hour ASC
+  `;
+
+  db.all(query, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const map = {};
+    (rows || []).forEach((r) => {
+      if (r.hour !== null) {
+        map[r.hour] = Number(r.entries || 0);
+      }
+    });
+
+    const result = [];
+    for (let i = 0; i < 24; i++) {
+      const h = String(i).padStart(2, "0");
+      result.push({
+        hour: h,
+        entries: map[h] || 0,
+      });
+    }
+
+    res.json(result);
+  });
+});
+
+// GET /api/analytics/hourly-occupancy
+app.get("/api/analytics/hourly-occupancy", (req, res) => {
+  const query = `
+    SELECT entry_time, exit_time
+    FROM tickets
+    WHERE entry_time IS NOT NULL
+  `;
+
+  db.all(query, (err, tickets) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const daySet = new Set();
+    (tickets || []).forEach((t) => {
+      if (t.entry_time) {
+        daySet.add(t.entry_time.slice(0, 10));
+      }
+    });
+
+    const days = Array.from(daySet).sort();
+    const dayCount = days.length || 1;
+
+    const parsedTickets = (tickets || []).map((t) => ({
+      entry: new Date(t.entry_time).getTime(),
+      exit: t.exit_time ? new Date(t.exit_time).getTime() : Infinity,
+    }));
+
+    const result = [];
+    for (let h = 0; h < 24; h++) {
+      const hourStr = String(h).padStart(2, "0");
+      let totalParkedAcrossDays = 0;
+
+      for (const d of days) {
+        const hourTs = new Date(`${d}T${hourStr}:00:00`).getTime();
+        let parkedCount = 0;
+        for (const t of parsedTickets) {
+          if (t.entry <= hourTs && t.exit > hourTs) {
+            parkedCount++;
+          }
+        }
+        totalParkedAcrossDays += parkedCount;
+      }
+
+      const avgOccupancy = Math.round(totalParkedAcrossDays / dayCount);
+      result.push({
+        hour: hourStr,
+        avgOccupancy,
+      });
+    }
+
+    res.json(result);
+  });
+});
+
+// GET /api/analytics/revenue-trend
+app.get("/api/analytics/revenue-trend", (req, res) => {
+  const query = `
+    SELECT date(exit_time) AS date, SUM(fee) AS revenue
+    FROM tickets
+    WHERE status = 'completed' AND exit_time IS NOT NULL
+    GROUP BY date(exit_time)
+    ORDER BY date ASC
+  `;
+
+  db.all(query, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const result = (rows || []).map((r) => ({
+      date: r.date,
+      revenue: Number(r.revenue || 0),
+    }));
+    res.json(result);
   });
 });
 
