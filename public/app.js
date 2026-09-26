@@ -4,6 +4,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const ticketsList = document.getElementById("tickets-list");
   const btnEntry = document.getElementById("btn-entry");
   const btnEntryText = document.getElementById("btn-entry-text") || btnEntry;
+  const btnTypeCar = document.getElementById("btn-type-car");
+  const btnTypeMotorcycle = document.getElementById("btn-type-motorcycle");
   const simEntryTime = document.getElementById("sim-entry-time");
   const simExitTime = document.getElementById("sim-exit-time");
   const entryToast = document.getElementById("entry-toast");
@@ -11,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Modal refs
   const modal = document.getElementById("exit-modal");
   const coTicketId = document.getElementById("co-ticket-id");
+  const coVehicleType = document.getElementById("co-vehicle-type");
   const coSlotId = document.getElementById("co-slot-id");
   const coFloor = document.getElementById("co-floor");
   const coEntryTime = document.getElementById("co-entry-time");
@@ -35,7 +38,38 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnSearch = document.getElementById("btn-search");
   const btnClearSearch = document.getElementById("btn-clear-search");
 
+  // Fee schedules by vehicle type
+  const FEE_SCHEDULES = {
+    car: {
+      type: "car",
+      label: "Car",
+      shortBadge: "CAR",
+      baseHours: 3,
+      baseRate: 50,
+      hourlyRate: 20,
+      overnightSurcharge: 300,
+      towedThresholdHours: 24,
+    },
+    motorcycle: {
+      type: "motorcycle",
+      label: "Motorcycle",
+      shortBadge: "MC",
+      baseHours: 2,
+      baseRate: 30,
+      hourlyRate: 10,
+      overnightSurcharge: 300,
+      towedThresholdHours: 24,
+    },
+  };
+
+  function getFeeSchedule(vehicleType) {
+    const normalized = String(vehicleType || "car").toLowerCase().trim();
+    return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
+  }
+
+  let selectedVehicleType = "car";
   let currentTicketId = null;
+  let currentVehicleType = "car";
   let currentFee = 0;
   let allTickets = [];
   let searchedTicketId = null;
@@ -44,10 +78,42 @@ document.addEventListener("DOMContentLoaded", () => {
   const TICKETS_PER_PAGE = 10;
   let currentTicketsData = [];
 
+  let reservedMotorcycleSlots = [];
+
+  function setVehicleTypeSelection(type) {
+    const schedule = getFeeSchedule(type);
+    selectedVehicleType = schedule.type;
+
+    const activeClass =
+      "inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-apple-sm text-xs sm:text-[13px] font-semibold bg-[#1d1d1f] text-white shadow-xs transition-all cursor-pointer";
+    const inactiveClass =
+      "inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-apple-sm text-xs sm:text-[13px] font-semibold text-[#6e6e73] hover:text-[#1d1d1f] transition-all cursor-pointer";
+
+    if (btnTypeCar) {
+      const isCar = selectedVehicleType === "car";
+      btnTypeCar.className = isCar ? activeClass : inactiveClass;
+      btnTypeCar.setAttribute("aria-pressed", String(isCar));
+    }
+    if (btnTypeMotorcycle) {
+      const isMc = selectedVehicleType === "motorcycle";
+      btnTypeMotorcycle.className = isMc ? activeClass : inactiveClass;
+      btnTypeMotorcycle.setAttribute("aria-pressed", String(isMc));
+    }
+  }
+
+  if (btnTypeCar) {
+    btnTypeCar.addEventListener("click", () => setVehicleTypeSelection("car"));
+  }
+  if (btnTypeMotorcycle) {
+    btnTypeMotorcycle.addEventListener("click", () =>
+      setVehicleTypeSelection("motorcycle"),
+    );
+  }
+
   window.setQuickAmount = function(amount) {
     if (!cashInput) return;
     if (amount === 'exact') {
-      cashInput.value = currentFee || 50;
+      cashInput.value = currentFee || getFeeSchedule(currentVehicleType).baseRate;
     } else {
       cashInput.value = amount;
     }
@@ -145,7 +211,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       allTickets = data.tickets || [];
-      renderFloors(data.capacity || {});
+      reservedMotorcycleSlots = data.reservedMotorcycleSlots || [];
+      renderFloors(data.capacity || {}, reservedMotorcycleSlots);
 
       // If user searched for a specific ticket, filter by it
       if (searchedTicketId) {
@@ -219,8 +286,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     [1, 2, 3].forEach((floor) => {
       const cap = capacity[floor] || { total: 100, taken: 0 };
-      const available = Math.max(0, cap.total - cap.taken);
-      const pct = Math.round((cap.taken / cap.total) * 100);
+      const total = Number(cap.total) || 100;
+      const taken = Number(cap.taken) || 0;
+      const available =
+        cap.available !== undefined
+          ? Number(cap.available)
+          : Math.max(0, total - taken);
+      const pct = total > 0 ? Math.round((taken / total) * 100) : 0;
 
       // Ring border color based on occupancy
       const ringColor =
@@ -231,20 +303,61 @@ document.addEventListener("DOMContentLoaded", () => {
             : "border-emerald-500";
 
       const card = document.createElement("div");
-      card.className =
-        "bg-white rounded-apple-2xl shadow-sm p-4 sm:p-5 flex items-center justify-between gap-4 border border-black/5 hover:border-black/10 transition-colors";
-      card.innerHTML = `
+
+      if (floor === 1) {
+        const mcParked =
+          cap.mcTaken !== undefined
+            ? Number(cap.mcTaken)
+            : allTickets.filter(
+                (t) => Number(t.floor) === 1 && t.vehicle_type === "motorcycle",
+              ).length;
+        const mcTotal =
+          cap.mcTotalCapacity !== undefined ? Number(cap.mcTotalCapacity) : 120;
+        const carsParked =
+          cap.carSlotsTaken !== undefined
+            ? Number(cap.carSlotsTaken)
+            : allTickets.filter(
+                (t) => Number(t.floor) === 1 && t.vehicle_type !== "motorcycle",
+              ).length;
+        const carsTotal =
+          cap.carSlotsTotal !== undefined ? Number(cap.carSlotsTotal) : 80;
+
+        card.className =
+          "bg-white rounded-apple-2xl shadow-sm p-4 sm:p-5 flex flex-col gap-3.5 border border-black/5 hover:border-black/10 transition-colors";
+        card.innerHTML = `
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <span class="text-[11px] font-semibold tracking-widest uppercase text-[#8e8e93]">Floor 1</span>
+                  <p class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#1d1d1f] leading-none my-1">
+                    ${available}<span class="text-sm sm:text-base font-bold text-[#8e8e93]">/${total}</span>
+                  </p>
+                  <p class="text-xs text-[#6e6e73] truncate">${taken} slot${taken !== 1 ? "s" : ""} currently occupied</p>
+                </div>
+                <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-full border-4 ${ringColor} flex items-center justify-center shrink-0">
+                  <span class="text-xs sm:text-sm font-bold text-[#1d1d1f]">${pct}%</span>
+                </div>
+              </div>
+              <div class="pt-3 border-t border-[#f5f5f7] flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs sm:text-[13px] text-[#6e6e73] font-medium">
+                <span><strong class="text-[#1d1d1f] font-bold tabular-nums">${mcParked}/${mcTotal}</strong> motorcycles parked</span>
+                <span><strong class="text-[#1d1d1f] font-bold tabular-nums">${carsParked}/${carsTotal}</strong> cars parked</span>
+              </div>
+            `;
+      } else {
+        card.className =
+          "bg-white rounded-apple-2xl shadow-sm p-4 sm:p-5 flex items-center justify-between gap-4 border border-black/5 hover:border-black/10 transition-colors";
+        card.innerHTML = `
               <div class="flex flex-col gap-0.5 min-w-0">
                 <span class="text-[11px] font-semibold tracking-widest uppercase text-[#8e8e93]">Floor ${floor}</span>
                 <p class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#1d1d1f] leading-none my-1">
-                  ${available}<span class="text-sm sm:text-base font-bold text-[#8e8e93]">/100</span>
+                  ${available}<span class="text-sm sm:text-base font-bold text-[#8e8e93]">/${total}</span>
                 </p>
-                <p class="text-xs text-[#6e6e73] truncate">${cap.taken} slot${cap.taken !== 1 ? "s" : ""} currently occupied</p>
+                <p class="text-xs text-[#6e6e73] truncate">${taken} slot${taken !== 1 ? "s" : ""} currently occupied</p>
               </div>
               <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-full border-4 ${ringColor} flex items-center justify-center shrink-0">
                 <span class="text-xs sm:text-sm font-bold text-[#1d1d1f]">${pct}%</span>
               </div>
             `;
+      }
       floorsContainer.appendChild(card);
     });
   }
@@ -281,25 +394,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ticketsList.innerHTML = "";
     pagedTickets.forEach((t) => {
+      const schedule = getFeeSchedule(t.vehicle_type);
+      const isReservedMcSlot =
+        Boolean(t.is_reserved_motorcycle_slot) ||
+        (Number(t.floor) === 1 && Number(t.slot_id) >= 100 && Number(t.slot_id) <= 120);
+      let slotDetailText = `${schedule.label} · Slot ${t.slot_id} · Floor ${t.floor}`;
+      if (isReservedMcSlot) {
+        const used = Math.min(6, Math.max(0, Number(t.slot_motorcycle_count || 1)));
+        const rem =
+          t.slot_remaining !== undefined
+            ? Number(t.slot_remaining)
+            : Math.max(0, 6 - used);
+        slotDetailText = `${schedule.label} · Slot ${t.slot_id} (${rem}/6) · Floor ${t.floor}`;
+      }
+
+      const vehicleInfoParts = [t.year, t.color, t.brand].filter(Boolean);
+      const idBadge = t.plate_number
+        ? `Plate: ${t.plate_number}`
+        : t.mv_file_number
+          ? `MV File: ${t.mv_file_number}`
+          : null;
+      const vehicleMetaLine = [
+        vehicleInfoParts.join(" · "),
+        idBadge,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
       const card = document.createElement("div");
       card.className =
         "bg-white rounded-apple-2xl shadow-sm p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-black/5 hover:border-black/10 transition-colors";
       card.innerHTML = `
               <div class="flex items-center gap-3.5 min-w-0">
-                <div class="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0 text-sm font-bold text-[#6e6e73]">
-                  TKT
+                <div class="w-10 h-10 rounded-full bg-[#f5f5f7] flex items-center justify-center shrink-0 text-xs font-bold text-[#6e6e73]">
+                  ${schedule.shortBadge}
                 </div>
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <div class="flex items-center gap-2">
                     <p class="text-base font-bold tracking-tight text-[#1d1d1f]">Ticket #${t.id}</p>
                     <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[10px] uppercase">Active</span>
+                    <span class="px-2 py-0.5 rounded-full bg-[#f5f5f7] text-[#1d1d1f] font-semibold text-[10px] uppercase">${schedule.label}</span>
                   </div>
-                  <p class="text-xs sm:text-[13px] text-[#6e6e73] font-medium">Slot ${t.slot_id} · Floor ${t.floor}</p>
+                  <p class="text-xs sm:text-[13px] text-[#6e6e73] font-medium">${slotDetailText}</p>
+                  ${vehicleMetaLine ? `<p class="text-xs text-[#1d1d1f] font-medium truncate">${vehicleMetaLine}</p>` : ""}
                   <p class="text-[11px] sm:text-xs text-[#8e8e93] truncate">Entered: ${new Date(t.entry_time).toLocaleString()}</p>
                 </div>
               </div>
               <button
-                onclick="window.openCheckout(${t.id}, ${t.slot_id}, ${t.floor}, '${t.entry_time}')"
+                onclick="window.openCheckout(${t.id}, ${t.slot_id}, ${t.floor}, '${t.entry_time}', '${schedule.type}')"
                 class="w-full sm:w-auto shrink-0 px-5 py-2.5 rounded-full bg-[#1d1d1f] text-white text-xs sm:text-sm font-semibold hover:bg-[#3a3a3c] active:scale-95 transition-all duration-150 text-center cursor-pointer"
               >
                 Checkout &rarr;
@@ -379,21 +521,247 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // ── Entry button (Reliable with immediate feedback) ────────────────────────
+  // ── Vehicle Details Dialog & Region-Based Brand Filtering ─────────────────
+  const CAR_BRANDS_BY_REGION = {
+    Japanese: [
+      "Toyota",
+      "Mitsubishi",
+      "Nissan",
+      "Honda",
+      "Suzuki",
+      "Isuzu",
+      "Mazda",
+      "Subaru",
+      "Lexus",
+    ],
+    Chinese: [
+      "Geely",
+      "BYD",
+      "GAC",
+      "Chery",
+      "Changan",
+      "Foton",
+      "Jetour",
+      "BAIC",
+      "GWM (Great Wall Motor)",
+      "MG",
+      "Omoda",
+      "Jaecoo",
+      "Lynk & Co",
+      "Deepal",
+      "Denza",
+      "Zeekr",
+      "Xpeng",
+      "Aion",
+      "DFSK",
+      "JAC",
+      "Kaicene",
+      "Hongqi",
+      "Dongfeng",
+      "Aito",
+      "Radar",
+      "Voyah",
+      "FAW",
+      "Haima",
+    ],
+    American: ["Ford", "Chevrolet", "Jeep", "Dodge", "RAM", "Tesla"],
+    Korean: ["Hyundai", "Kia", "KGM/SsangYong"],
+    German: ["BMW", "Mercedes-Benz", "Audi", "Porsche", "Volkswagen"],
+    "European (other)": [
+      "Volvo",
+      "Peugeot",
+      "Land Rover",
+      "Jaguar",
+      "MINI",
+      "Lotus",
+      "Ferrari",
+      "Lamborghini",
+      "Aston Martin",
+      "Maserati",
+      "Bentley",
+      "Rolls-Royce",
+      "Abarth",
+      "Alfa Romeo",
+      "Fiat",
+    ],
+    Indian: ["Mahindra", "Tata"],
+    Vietnamese: ["VinFast"],
+  };
+
+  const MOTORCYCLE_BRANDS_BY_REGION = {
+    Japanese: ["Honda", "Yamaha", "Kawasaki", "Suzuki"],
+    Chinese: ["CFMOTO", "QJ Motor", "Benelli", "Bristol", "Loncin", "Rusi", "Motorstar"],
+    American: ["Harley-Davidson", "Indian Motorcycle"],
+    European: ["Vespa", "KTM", "Ducati", "BMW Motorrad", "Husqvarna", "Triumph", "Aprilia", "Piaggio"],
+    Taiwanese: ["Kymco", "SYM"],
+    Indian: ["Bajaj", "TVS", "Royal Enfield"],
+  };
+
+  const entryDetailsModal = document.getElementById("entry-details-modal");
+  const entryDetailsForm = document.getElementById("entry-details-form");
+  const entryModalVehicleBadge = document.getElementById("entry-modal-vehicle-badge");
+  const entryBrandInput = document.getElementById("entry-brand");
+  const entrySelectedBrandSummary = document.getElementById("entry-selected-brand-summary");
+  const entryBrandRegionsContainer = document.getElementById("entry-brand-regions");
+  const entryBrandListContainer = document.getElementById("entry-brand-list");
+  const entryColorInput = document.getElementById("entry-color");
+  const entryYearInput = document.getElementById("entry-year");
+  const entryPlateInput = document.getElementById("entry-plate");
+  const entryMvFileInput = document.getElementById("entry-mv-file");
+  const entryDetailsError = document.getElementById("entry-details-error");
+  const btnEntryCancel = document.getElementById("btn-entry-cancel");
+  const btnEntryConfirm = document.getElementById("btn-entry-confirm");
+
+  let selectedBrandRegion = "Japanese";
+  let selectedBrandName = "Toyota";
+
+  function getActiveBrandMap() {
+    return selectedVehicleType === "motorcycle"
+      ? MOTORCYCLE_BRANDS_BY_REGION
+      : CAR_BRANDS_BY_REGION;
+  }
+
+  function renderBrandSelector() {
+    if (!entryBrandRegionsContainer || !entryBrandListContainer) return;
+
+    const brandMap = getActiveBrandMap();
+    const regions = Object.keys(brandMap);
+    if (!regions.includes(selectedBrandRegion)) {
+      selectedBrandRegion = regions[0] || "Japanese";
+    }
+
+    entryBrandRegionsContainer.innerHTML = "";
+
+    regions.forEach((region) => {
+      const isActive = region === selectedBrandRegion;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("role", "tab");
+      btn.setAttribute("aria-selected", String(isActive));
+      btn.dataset.region = region;
+      btn.className = isActive
+        ? "px-2.5 py-1 rounded-full text-[11px] font-semibold bg-[#1d1d1f] text-white shadow-xs transition-colors cursor-pointer"
+        : "px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white text-[#6e6e73] border border-[#e5e5ea] hover:text-[#1d1d1f] hover:border-[#d2d2d7] transition-colors cursor-pointer";
+      btn.textContent = region;
+      btn.addEventListener("click", () => {
+        selectedBrandRegion = region;
+        const regionBrands = brandMap[region] || [];
+        if (!regionBrands.includes(selectedBrandName) && regionBrands.length > 0) {
+          selectedBrandName = regionBrands[0];
+        }
+        renderBrandSelector();
+        entryBrandListContainer.scrollTop = 0;
+      });
+      entryBrandRegionsContainer.appendChild(btn);
+    });
+
+    const brands = brandMap[selectedBrandRegion] || [];
+    entryBrandListContainer.innerHTML = "";
+
+    brands.forEach((brand) => {
+      const isSelected = brand === selectedBrandName;
+      const itemBtn = document.createElement("button");
+      itemBtn.type = "button";
+      itemBtn.setAttribute("role", "option");
+      itemBtn.setAttribute("aria-selected", String(isSelected));
+      itemBtn.dataset.brand = brand;
+      itemBtn.style.height = "36px";
+      itemBtn.style.minHeight = "36px";
+      itemBtn.className = isSelected
+        ? "w-full px-3 flex items-center justify-between text-left text-xs font-semibold bg-[#1d1d1f]/5 text-[#1d1d1f] transition-colors cursor-pointer"
+        : "w-full px-3 flex items-center justify-between text-left text-xs font-medium text-[#3a3a3c] hover:bg-[#f5f5f7] transition-colors cursor-pointer";
+      itemBtn.innerHTML = `
+        <span class="truncate">${brand}</span>
+        ${isSelected ? '<span class="text-[11px] font-bold text-[#1d1d1f]">Selected</span>' : ""}
+      `;
+      itemBtn.addEventListener("click", () => {
+        selectedBrandName = brand;
+        renderBrandSelector();
+      });
+      entryBrandListContainer.appendChild(itemBtn);
+    });
+
+    if (entryBrandInput) {
+      entryBrandInput.value = selectedBrandName;
+    }
+    if (entrySelectedBrandSummary) {
+      entrySelectedBrandSummary.textContent = `${selectedBrandName} (${selectedBrandRegion})`;
+    }
+  }
+
+  function openEntryDetailsModal() {
+    const schedule = getFeeSchedule(selectedVehicleType);
+    if (entryModalVehicleBadge) {
+      entryModalVehicleBadge.textContent = schedule.label;
+    }
+    selectedBrandRegion = "Japanese";
+    selectedBrandName = schedule.type === "motorcycle" ? "Honda" : "Toyota";
+    renderBrandSelector();
+    if (entryBrandListContainer) {
+      entryBrandListContainer.scrollTop = 0;
+    }
+    if (entryColorInput) entryColorInput.value = "White";
+    if (entryYearInput) entryYearInput.value = "2024";
+    if (entryPlateInput) entryPlateInput.value = "";
+    if (entryMvFileInput) entryMvFileInput.value = "";
+    if (entryDetailsError) {
+      entryDetailsError.textContent = "";
+      entryDetailsError.classList.add("hidden");
+    }
+    if (entryDetailsModal) {
+      entryDetailsModal.classList.remove("hidden");
+    }
+  }
+
+  function closeEntryDetailsModal() {
+    if (entryDetailsModal) {
+      entryDetailsModal.classList.add("hidden");
+    }
+  }
+
+  if (btnEntryCancel) {
+    btnEntryCancel.addEventListener("click", closeEntryDetailsModal);
+  }
+  if (entryDetailsModal) {
+    entryDetailsModal.addEventListener("click", (e) => {
+      if (e.target === entryDetailsModal) {
+        closeEntryDetailsModal();
+      }
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && entryDetailsModal && !entryDetailsModal.classList.contains("hidden")) {
+      closeEntryDetailsModal();
+    }
+  });
+
   if (btnEntry) {
-    btnEntry.addEventListener("click", async (e) => {
+    btnEntry.addEventListener("click", (e) => {
+      e.preventDefault();
+      openEntryDetailsModal();
+    });
+  }
+
+  if (entryDetailsForm) {
+    entryDetailsForm.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      // Read simulated entry time if specified
       const entryTime =
         simEntryTime && simEntryTime.value
           ? new Date(simEntryTime.value).toISOString()
           : new Date().toISOString();
 
-      // Immediate UI feedback
-      btnEntry.disabled = true;
-      const prevContent = btnEntry.innerHTML;
-      btnEntry.innerHTML = `<span>Entering...</span>`;
+      const brand = (entryBrandInput && entryBrandInput.value) || selectedBrandName || "Toyota";
+      const color = (entryColorInput && entryColorInput.value) || "White";
+      const yearVal = entryYearInput && entryYearInput.value ? parseInt(entryYearInput.value, 10) : 2024;
+      const plateNumber = entryPlateInput && entryPlateInput.value.trim() ? entryPlateInput.value.trim().toUpperCase() : null;
+      const mvFileNumber = entryMvFileInput && entryMvFileInput.value.trim() ? entryMvFileInput.value.trim().toUpperCase() : null;
+
+      if (btnEntryConfirm) {
+        btnEntryConfirm.disabled = true;
+        btnEntryConfirm.textContent = "Confirming...";
+      }
 
       try {
         const res = await fetch("/api/entry", {
@@ -401,18 +769,38 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             entryTime,
+            vehicleType: selectedVehicleType,
+            brand,
+            color,
+            year: Number.isInteger(yearVal) ? yearVal : 2024,
+            plateNumber,
+            mvFileNumber,
           }),
         });
         const data = await res.json();
 
         if (!res.ok) {
-          showToast(`! ${data.error || "Unable to enter lot."}`, true);
+          if (entryDetailsError) {
+            entryDetailsError.textContent = data.error || "Unable to enter lot.";
+            entryDetailsError.classList.remove("hidden");
+          } else {
+            showToast(`! ${data.error || "Unable to enter lot."}`, true);
+          }
         } else {
+          closeEntryDetailsModal();
+          const schedule = getFeeSchedule(data.vehicleType || selectedVehicleType);
+          const remainingNote = data.isReservedMotorcycleSlot
+            ? `, ${data.slotRemaining} of ${data.slotCapacity} remaining in slot`
+            : "";
+          const idSummary = data.plateNumber
+            ? ` [${data.plateNumber}]`
+            : data.mvFileNumber
+              ? ` [MV: ${data.mvFileNumber}]`
+              : "";
           showToast(
-            `✓ Car entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}) - Ticket #<strong>${data.ticketId}</strong>`,
+            `✓ ${schedule.label}${idSummary} entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}${remainingNote}) - Ticket #<strong>${data.ticketId}</strong>`,
           );
 
-          // Clear search to show the newly parked ticket right away
           searchedTicketId = null;
           if (searchInput) searchInput.value = "";
           if (btnClearSearch) btnClearSearch.classList.add("hidden");
@@ -421,13 +809,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } catch (err) {
         console.error("Entry error:", err);
-        showToast(
-          "! Could not connect to backend server. Make sure node server is running on port 3000.",
-          true,
-        );
+        if (entryDetailsError) {
+          entryDetailsError.textContent =
+            "Could not connect to backend server. Make sure node server is running on port 3000.";
+          entryDetailsError.classList.remove("hidden");
+        }
       } finally {
-        btnEntry.disabled = false;
-        btnEntry.innerHTML = prevContent;
+        if (btnEntryConfirm) {
+          btnEntryConfirm.disabled = false;
+          btnEntryConfirm.textContent = "Confirm Entry";
+        }
       }
     });
   }
@@ -455,9 +846,22 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ── Checkout modal ────────────────────────────────────────────────────────
-  window.openCheckout = async function (ticketId, slotId, floor, entryTime) {
+  window.openCheckout = async function (
+    ticketId,
+    slotId,
+    floor,
+    entryTime,
+    vehicleType,
+  ) {
     currentTicketId = ticketId;
+    const matchedTicket = allTickets.find((t) => t.id === ticketId);
+    const initialSchedule = getFeeSchedule(
+      vehicleType || (matchedTicket && matchedTicket.vehicle_type) || "car",
+    );
+    currentVehicleType = initialSchedule.type;
+
     if (coTicketId) coTicketId.textContent = "#" + ticketId;
+    if (coVehicleType) coVehicleType.textContent = initialSchedule.label;
     if (coSlotId) coSlotId.textContent = slotId;
     if (coFloor) coFloor.textContent = floor;
     if (coEntryTime)
@@ -493,16 +897,25 @@ document.addEventListener("DOMContentLoaded", () => {
     if (modal) modal.classList.remove("hidden");
 
     // Fetch fee preview
-    const exitTimeParam =
-      simExitTime && simExitTime.value
-        ? `?exitTime=${new Date(simExitTime.value).toISOString()}`
-        : "";
+    const queryParts = [`vehicleType=${encodeURIComponent(currentVehicleType)}`];
+    if (simExitTime && simExitTime.value) {
+      queryParts.push(
+        `exitTime=${encodeURIComponent(new Date(simExitTime.value).toISOString())}`,
+      );
+    }
+    const queryString = `?${queryParts.join("&")}`;
 
     try {
-      const res = await fetch(`/api/ticket/${ticketId}/fee${exitTimeParam}`);
+      const res = await fetch(`/api/ticket/${ticketId}/fee${queryString}`);
       const data = await res.json();
 
       if (res.ok) {
+        const activeSchedule = getFeeSchedule(
+          data.vehicleType || currentVehicleType,
+        );
+        currentVehicleType = activeSchedule.type;
+        if (coVehicleType) coVehicleType.textContent = activeSchedule.label;
+
         currentFee = Number(data.fee) || 0;
         if (coFeeDisplay) coFeeDisplay.textContent = `₱${currentFee}`;
         setStatusPill(data.status);
@@ -525,14 +938,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (coFeeNote) {
+          const peakBase = Math.round(activeSchedule.baseRate * 1.5);
+          const peakHourly = Math.round(activeSchedule.hourlyRate * 1.5);
           if (data.status === "towed") {
             coFeeNote.textContent = "Stay exceeded 24 hours. Vehicle impounded.";
           } else if (data.isOvernight) {
-            coFeeNote.textContent = `Includes ₱300 overnight surcharge (${data.rateType})`;
+            coFeeNote.textContent = `Includes ₱${activeSchedule.overnightSurcharge} overnight surcharge (${data.rateType})`;
           } else if (data.isPeak) {
-            coFeeNote.textContent = "Commute surge multiplier active: ₱75 first 3 hrs / ₱30 per additional hr";
+            coFeeNote.textContent = `Commute surge multiplier active (${activeSchedule.label}): ₱${peakBase} first ${activeSchedule.baseHours} hrs / ₱${peakHourly} per additional hr`;
           } else {
-            coFeeNote.textContent = "Standard rate: ₱50 first 3 hrs / ₱20 per additional hr";
+            coFeeNote.textContent = `Standard ${activeSchedule.label.toLowerCase()} rate: ₱${activeSchedule.baseRate} first ${activeSchedule.baseHours} hrs / ₱${activeSchedule.hourlyRate} per additional hr`;
           }
         }
 
@@ -558,7 +973,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (currentTicketId && modal && !modal.classList.contains("hidden")) {
         const ticket = allTickets.find((t) => t.id === currentTicketId);
         if (ticket) {
-          window.openCheckout(ticket.id, ticket.slot_id, ticket.floor, ticket.entry_time);
+          window.openCheckout(
+            ticket.id,
+            ticket.slot_id,
+            ticket.floor,
+            ticket.entry_time,
+            ticket.vehicle_type,
+          );
         }
       }
     });
@@ -610,8 +1031,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (paymentError) paymentError.classList.add("hidden");
 
-      if (isNaN(amountReceived) || amountReceived < 50 || amountReceived > 1000) {
-        showPaymentError("Please input any amount from ₱50 to ₱1,000.");
+      const minAllowed = Math.min(50, currentFee > 0 ? currentFee : 50);
+      if (isNaN(amountReceived) || amountReceived < minAllowed || amountReceived > 1000) {
+        showPaymentError(`Please input any amount from ₱${minAllowed} to ₱1,000.`);
         return;
       }
 

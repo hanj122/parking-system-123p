@@ -1,11 +1,21 @@
 /* 
-  styles.css — Only things Tailwind can't express:
-  • Instrument Sans font-face (via Google Fonts @import)
-  • Custom keyframe animations
-  • Input number spinner hide
+  styles.css - Shared ParkWise variables, font-face, and custom keyframe animations
 */
 
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&display=swap');
+
+:root {
+  --bg-canvas: #f5f5f7;
+  --bg-card: #ffffff;
+  --bg-elevated: #f5f5f7;
+  --text-primary: #1d1d1f;
+  --text-secondary: #3a3a3c;
+  --text-muted: #6e6e73;
+  --text-subtle: #8e8e93;
+  --border-color: rgba(0, 0, 0, 0.05);
+  --parkwise-accent: #34c759;
+  --parkwise-accent-dark: #30d158;
+}
 
 /* Hide number input spin buttons */
 input[type="number"]::-webkit-inner-spin-button,

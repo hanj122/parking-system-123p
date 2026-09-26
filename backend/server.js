@@ -33,10 +33,38 @@ app.get("/reports", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/reports.html"));
 });
 
-// Helper to validate payment amount: accepts any amount from 50 to 1000
-function isValidPaymentAmount(amount) {
+// Fee schedule definitions by vehicle type
+const FEE_SCHEDULES = {
+  car: {
+    type: "car",
+    label: "Car",
+    baseHours: 3,
+    baseRate: 50,
+    hourlyRate: 20,
+    overnightSurcharge: 300,
+    towedThresholdHours: 24,
+  },
+  motorcycle: {
+    type: "motorcycle",
+    label: "Motorcycle",
+    baseHours: 2,
+    baseRate: 30,
+    hourlyRate: 10,
+    overnightSurcharge: 300,
+    towedThresholdHours: 24,
+  },
+};
+
+function getFeeSchedule(vehicleType) {
+  const normalized = String(vehicleType || "car").toLowerCase().trim();
+  return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
+}
+
+// Helper to validate payment amount: accepts any amount from minAllowed (50, or exact motorcycle fee) up to 1000
+function isValidPaymentAmount(amount, fee = 50) {
   if (typeof amount !== "number" || isNaN(amount)) return false;
-  return amount >= 50 && amount <= 1000;
+  const minAllowed = Math.min(50, fee > 0 ? fee : 50);
+  return amount >= minAllowed && amount <= 1000;
 }
 
 // Helper to determine if a given date falls within peak demand hours
@@ -60,8 +88,9 @@ function checkIsPeakSession(entryDate, exitDate) {
   return false;
 }
 
-// Calculate fee based on entry and exit time with dynamic pricing
-function calculateFeeAndStatus(entryTime, exitTime) {
+// Calculate fee based on entry, exit time, and vehicle type schedule
+function calculateFeeAndStatus(entryTime, exitTime, vehicleType = "car") {
+  const schedule = getFeeSchedule(vehicleType);
   const entryDate = new Date(entryTime);
   const exitDate = new Date(exitTime);
 
@@ -71,30 +100,35 @@ function calculateFeeAndStatus(entryTime, exitTime) {
       fee: 0,
       status: "error",
       error: "Exit time cannot be earlier than entry time.",
+      vehicleType: schedule.type,
+      vehicleLabel: schedule.label,
       isPeak: false,
       isOvernight: false,
-      rateType: "Invalid"
+      rateType: "Invalid",
     };
   }
 
   const diffHours = diffMs / (1000 * 60 * 60);
 
   // 1. Towing policy (>= 24 hours stay)
-  if (diffHours >= 24) {
+  if (diffHours >= schedule.towedThresholdHours) {
     return {
       fee: 0,
       status: "towed",
+      vehicleType: schedule.type,
+      vehicleLabel: schedule.label,
       isPeak: false,
       isOvernight: false,
       rateType: "Towed",
-      durationHours: Number(diffHours.toFixed(2))
+      durationHours: Number(diffHours.toFixed(2)),
     };
   }
 
-  // 2. Dynamic rate determination (Peak 1.5x multiplier)
+  // 2. Dynamic rate determination (Peak 1.5x multiplier applied to active vehicle schedule)
   const isPeak = checkIsPeakSession(entryDate, exitDate);
-  const baseRate = isPeak ? 75 : 50;       // 1.5x surge: ₱75 vs ₱50
-  const hourlyRate = isPeak ? 30 : 20;     // 1.5x surge: ₱30 vs ₱20
+  const baseHours = schedule.baseHours;
+  const baseRate = isPeak ? Math.round(schedule.baseRate * 1.5) : schedule.baseRate;
+  const hourlyRate = isPeak ? Math.round(schedule.hourlyRate * 1.5) : schedule.hourlyRate;
 
   // 3. Overnight surcharge check (+₱300 after 10:00 PM)
   let crosses10PM = false;
@@ -115,29 +149,32 @@ function calculateFeeAndStatus(entryTime, exitTime) {
     let pre10Fee = 0;
     if (hoursBefore10PM > 0) {
       pre10Fee = baseRate;
-      if (hoursBefore10PM > 3) {
-        pre10Fee += (hoursBefore10PM - 3) * hourlyRate;
+      if (hoursBefore10PM > baseHours) {
+        pre10Fee += (hoursBefore10PM - baseHours) * hourlyRate;
       }
     }
-    fee = 300 + pre10Fee;
+    fee = schedule.overnightSurcharge + pre10Fee;
   } else {
     const fullHours = Math.max(1, Math.ceil(diffHours));
-    if (fullHours <= 3) {
+    if (fullHours <= baseHours) {
       fee = baseRate;
     } else {
-      fee = baseRate + (fullHours - 3) * hourlyRate;
+      fee = baseRate + (fullHours - baseHours) * hourlyRate;
     }
   }
 
   return {
     fee,
     status: "completed",
+    vehicleType: schedule.type,
+    vehicleLabel: schedule.label,
     isPeak,
     isOvernight: crosses10PM,
     rateType: isPeak ? "Peak Surge (1.5x)" : "Standard Rate",
+    baseHours,
     baseRate,
     hourlyRate,
-    durationHours: Number(diffHours.toFixed(2))
+    durationHours: Number(diffHours.toFixed(2)),
   };
 }
 
@@ -174,114 +211,359 @@ function logReport(type, message, options = {}) {
   );
 }
 
-// GET /api/status - Get floor capacities and active tickets
-app.get("/api/status", (req, res) => {
+const MOTORCYCLE_RESERVED_FLOOR = 1;
+const MOTORCYCLE_RESERVED_START = 100;
+const MOTORCYCLE_RESERVED_END = 119;
+const MOTORCYCLE_SLOT_CAPACITY = 6;
+const STANDARD_SLOT_CAPACITY = 1;
+
+function isMotorcycleReservedSlot(slotId, floor = 1) {
+  const idNum = Number(slotId);
+  const floorNum = Number(floor);
+  return (
+    floorNum === MOTORCYCLE_RESERVED_FLOOR &&
+    idNum >= MOTORCYCLE_RESERVED_START &&
+    idNum <= MOTORCYCLE_RESERVED_END
+  );
+}
+
+function evaluateSlotState(row) {
+  const id = Number(row.id);
+  const floor = Number(row.floor);
+  const carCount = Number(row.car_count || 0);
+  const motorcycleCount = Number(row.mc_count || 0);
+  const totalActive = Number(row.total_active || 0);
+  const isReservedMotorcycle = isMotorcycleReservedSlot(id, floor);
+
+  if (isReservedMotorcycle) {
+    const capacity = MOTORCYCLE_SLOT_CAPACITY;
+    const effectiveCapacity = MOTORCYCLE_SLOT_CAPACITY;
+    const taken = Math.min(MOTORCYCLE_SLOT_CAPACITY, motorcycleCount);
+    const remaining = Math.max(0, MOTORCYCLE_SLOT_CAPACITY - motorcycleCount);
+    const canAcceptMotorcycle = motorcycleCount < MOTORCYCLE_SLOT_CAPACITY;
+    const canAcceptCar = false;
+    const status = remaining > 0 ? "available" : "occupied";
+
+    return {
+      id,
+      floor,
+      isReservedMotorcycle: true,
+      reservedFor: "motorcycle",
+      capacity,
+      effectiveCapacity,
+      carCount: 0,
+      motorcycleCount,
+      taken,
+      remaining,
+      conflictWithCar: false,
+      canAcceptMotorcycle,
+      canAcceptCar,
+      status,
+    };
+  }
+
+  const taken = totalActive > 0 ? 1 : 0;
+  const remaining = totalActive === 0 ? 1 : 0;
+  return {
+    id,
+    floor,
+    isReservedMotorcycle: false,
+    reservedFor: null,
+    capacity: STANDARD_SLOT_CAPACITY,
+    effectiveCapacity: STANDARD_SLOT_CAPACITY,
+    carCount,
+    motorcycleCount,
+    taken,
+    remaining,
+    conflictWithCar: false,
+    canAcceptMotorcycle: totalActive === 0,
+    canAcceptCar: totalActive === 0,
+    status: remaining > 0 ? "available" : "occupied",
+  };
+}
+
+function syncSlotsTableStatus(callback) {
   db.serialize(() => {
-    // Keep slots table status strictly synchronized with active tickets
+    // Standard slots (not 100-119 on Floor 1): occupied when >= 1 active ticket
     db.run(
-      "UPDATE slots SET status = 'available' WHERE id NOT IN (SELECT slot_id FROM tickets WHERE status = 'active')"
-    );
-    db.run(
-      "UPDATE slots SET status = 'occupied' WHERE id IN (SELECT slot_id FROM tickets WHERE status = 'active')"
+      `UPDATE slots
+       SET status = CASE
+         WHEN EXISTS (
+           SELECT 1 FROM tickets t
+           WHERE t.slot_id = slots.id AND t.status = 'active'
+         ) THEN 'occupied'
+         ELSE 'available'
+       END
+       WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)`
     );
 
+    // Reserved motorcycle slots (100-119 on Floor 1): occupied when active motorcycle count >= 6
+    db.run(
+      `UPDATE slots
+       SET status = CASE
+         WHEN (
+           SELECT COUNT(*) FROM tickets t
+           WHERE t.slot_id = slots.id
+             AND t.status = 'active'
+             AND t.vehicle_type = 'motorcycle'
+         ) >= 6 THEN 'occupied'
+         ELSE 'available'
+       END
+       WHERE floor = 1 AND id BETWEEN 100 AND 119`,
+      callback
+    );
+  });
+}
+
+function getEvaluatedSlots(callback) {
+  syncSlotsTableStatus(() => {
     const query = `
-      SELECT 
-        s.floor, 
-        COUNT(DISTINCT CASE WHEN t.status = 'active' THEN s.id END) AS taken
+      SELECT
+        s.id,
+        s.floor,
+        COUNT(CASE WHEN t.status = 'active' AND COALESCE(t.vehicle_type, 'car') = 'car' THEN 1 END) AS car_count,
+        COUNT(CASE WHEN t.status = 'active' AND t.vehicle_type = 'motorcycle' THEN 1 END) AS mc_count,
+        COUNT(CASE WHEN t.status = 'active' THEN 1 END) AS total_active
       FROM slots s
       LEFT JOIN tickets t ON s.id = t.slot_id AND t.status = 'active'
-      GROUP BY s.floor
+      GROUP BY s.id, s.floor
+      ORDER BY s.floor ASC, s.id ASC
     `;
+    db.all(query, (err, rows) => {
+      if (err) return callback(err);
+      const evaluated = (rows || []).map(evaluateSlotState);
+      callback(null, evaluated);
+    });
+  });
+}
 
-    db.all(query, (err, floorsData) => {
-      if (err) return res.status(500).json({ error: err.message });
+// GET /api/status - Get floor capacities, motorcycle reserved slot counters, and active tickets
+app.get("/api/status", (req, res) => {
+  getEvaluatedSlots((err, evaluatedSlots) => {
+    if (err) return res.status(500).json({ error: err.message });
 
-      let capacity = {
-        1: { total: 100, taken: 0 },
-        2: { total: 100, taken: 0 },
-        3: { total: 100, taken: 0 },
-      };
-      (floorsData || []).forEach((row) => {
-        if (capacity[row.floor]) {
-          capacity[row.floor].taken = row.taken;
+    const slotMap = new Map();
+    evaluatedSlots.forEach((s) => slotMap.set(s.id, s));
+
+    const floor1Slots = evaluatedSlots.filter((s) => s.floor === 1);
+    const reservedMcSlots = floor1Slots.filter((s) => s.isReservedMotorcycle);
+    const floor1StandardSlots = floor1Slots.filter((s) => !s.isReservedMotorcycle);
+
+    const carSlotsTotal = floor1StandardSlots.length;
+    const carSlotsTaken = floor1StandardSlots.reduce((acc, s) => acc + s.taken, 0);
+    const carSlotsAvailable = floor1StandardSlots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const mcReservedSlotsCount = reservedMcSlots.length;
+    const mcConflictSlotsCount = reservedMcSlots.filter((s) => s.conflictWithCar).length;
+    const mcActiveSlotsCount = mcReservedSlotsCount - mcConflictSlotsCount;
+    const mcTotalCapacity = mcReservedSlotsCount * MOTORCYCLE_SLOT_CAPACITY;
+    const mcEffectiveCapacity = mcActiveSlotsCount * MOTORCYCLE_SLOT_CAPACITY;
+    const mcTaken = reservedMcSlots.reduce((acc, s) => acc + s.motorcycleCount, 0);
+    const mcRemaining = reservedMcSlots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const floor1Available = carSlotsAvailable + mcRemaining;
+    const floor1Taken = carSlotsTaken + mcTaken + mcConflictSlotsCount;
+    const floor1Total = floor1Available + floor1Taken;
+
+    const floor2Slots = evaluatedSlots.filter((s) => s.floor === 2);
+    const floor2Taken = floor2Slots.reduce((acc, s) => acc + s.taken, 0);
+    const floor2Available = floor2Slots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const floor3Slots = evaluatedSlots.filter((s) => s.floor === 3);
+    const floor3Taken = floor3Slots.reduce((acc, s) => acc + s.taken, 0);
+    const floor3Available = floor3Slots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const capacity = {
+      1: {
+        total: floor1Total,
+        taken: floor1Taken,
+        available: floor1Available,
+        carSlotsTotal,
+        carSlotsTaken,
+        carSlotsAvailable,
+        mcSlotsRange: "100-119",
+        mcSlotCapacity: MOTORCYCLE_SLOT_CAPACITY,
+        mcReservedSlotsCount,
+        mcConflictSlotsCount,
+        mcActiveSlotsCount,
+        mcTotalCapacity,
+        mcEffectiveCapacity,
+        mcTaken,
+        mcRemaining,
+      },
+      2: {
+        total: floor2Slots.length || 100,
+        taken: floor2Taken,
+        available: floor2Available,
+      },
+      3: {
+        total: floor3Slots.length || 100,
+        taken: floor3Taken,
+        available: floor3Available,
+      },
+    };
+
+    db.all(
+      "SELECT t.id, t.slot_id, t.entry_time, COALESCE(t.vehicle_type, 'car') AS vehicle_type, t.brand, t.color, t.year, t.plate_number, t.mv_file_number, s.floor, t.map_latitude, t.map_longitude FROM tickets t JOIN slots s ON t.slot_id = s.id WHERE t.status = 'active' ORDER BY t.entry_time DESC",
+      (ticketErr, tickets) => {
+        if (ticketErr) return res.status(500).json({ error: ticketErr.message });
+
+        const enrichedTickets = (tickets || []).map((t) => {
+          const s = slotMap.get(Number(t.slot_id));
+          return {
+            ...t,
+            is_reserved_motorcycle_slot: s ? s.isReservedMotorcycle : isMotorcycleReservedSlot(t.slot_id, t.floor),
+            slot_capacity: s ? s.capacity : 1,
+            slot_remaining: s ? s.remaining : 0,
+            slot_motorcycle_count: s ? s.motorcycleCount : 0,
+            slot_car_count: s ? s.carCount : 0,
+            slot_conflict_with_car: s ? s.conflictWithCar : false,
+          };
+        });
+
+        res.json({
+          capacity,
+          reservedMotorcycleSlots: reservedMcSlots,
+          tickets: enrichedTickets,
+        });
+      }
+    );
+  });
+});
+
+// POST /api/entry - Assign slot and create ticket with vehicleType and motorcycle slot reservation (100-120, capacity 6)
+app.post("/api/entry", (req, res) => {
+  const schedule = getFeeSchedule(req.body.vehicleType);
+  const vehicleType = schedule.type;
+
+  getEvaluatedSlots((err, evaluatedSlots) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    let chosenSlot = null;
+
+    if (vehicleType === "motorcycle") {
+      // 1. Fill Floor 1 motorcycle-reserved slots (100-120) first (up to 6 motorcycles per slot, skipping legacy car conflicts)
+      const reservedCandidates = evaluatedSlots
+        .filter((s) => s.isReservedMotorcycle && s.canAcceptMotorcycle)
+        .sort((a, b) => a.id - b.id);
+
+      if (reservedCandidates.length > 0) {
+        chosenSlot = reservedCandidates[0];
+      } else {
+        // 2. Fallback to standard non-reserved slots if all reserved slots 100-120 are full or blocked
+        const fallbackCandidates = evaluatedSlots
+          .filter((s) => !s.isReservedMotorcycle && s.canAcceptMotorcycle)
+          .sort((a, b) => a.floor - b.floor || a.id - b.id);
+        if (fallbackCandidates.length > 0) {
+          chosenSlot = fallbackCandidates[0];
         }
+      }
+    } else {
+      // Cars must NEVER be parked in motorcycle-reserved slots (100-120 on Floor 1)
+      const carCandidates = evaluatedSlots
+        .filter((s) => !s.isReservedMotorcycle && s.canAcceptCar)
+        .sort((a, b) => a.floor - b.floor || a.id - b.id);
+      if (carCandidates.length > 0) {
+        chosenSlot = carCandidates[0];
+      }
+    }
+
+    if (!chosenSlot) {
+      logReport("capacity_issue", `Parking lot reached full capacity for ${schedule.label}`, {
+        severity: "warning",
       });
 
-      db.all(
-        "SELECT t.id, t.slot_id, t.entry_time, s.floor, t.map_latitude, t.map_longitude FROM tickets t JOIN slots s ON t.slot_id = s.id WHERE t.status = 'active' ORDER BY t.entry_time DESC",
-        (err, tickets) => {
-          if (err) return res.status(500).json({ error: err.message });
-          res.json({ capacity, tickets });
+      return res.status(400).json({
+        error:
+          vehicleType === "car"
+            ? "No car parking slots available (slots 100-120 on Floor 1 are reserved for motorcycles)."
+            : "Parking is full",
+      });
+    }
+
+    const entryTime = req.body.entryTime || new Date().toISOString();
+    const mapLatitude = req.body.mapLatitude ?? null;
+    const mapLongitude = req.body.mapLongitude ?? null;
+
+    if (
+      (mapLatitude !== null &&
+        (!Number.isFinite(Number(mapLatitude)) ||
+          Number(mapLatitude) < 14.3 ||
+          Number(mapLatitude) > 14.9)) ||
+      (mapLongitude !== null &&
+        (!Number.isFinite(Number(mapLongitude)) ||
+          Number(mapLongitude) < 120.8 ||
+          Number(mapLongitude) > 121.3))
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Ticket map pin must be within Metro Manila." });
+    }
+
+    const newOccupied = chosenSlot.isReservedMotorcycle
+      ? chosenSlot.motorcycleCount + 1
+      : 1;
+    const newRemaining = chosenSlot.isReservedMotorcycle
+      ? Math.max(0, MOTORCYCLE_SLOT_CAPACITY - newOccupied)
+      : 0;
+    const newSlotStatus = newRemaining === 0 ? "occupied" : "available";
+
+    const brand = req.body.brand ? String(req.body.brand).trim() : null;
+    const color = req.body.color ? String(req.body.color).trim() : null;
+    const yearVal = req.body.year ? parseInt(req.body.year, 10) : null;
+    const year = Number.isInteger(yearVal) ? yearVal : null;
+    const plateNumber = req.body.plateNumber
+      ? String(req.body.plateNumber).trim().toUpperCase()
+      : req.body.plate_number
+        ? String(req.body.plate_number).trim().toUpperCase()
+        : null;
+    const mvFileNumber = req.body.mvFileNumber
+      ? String(req.body.mvFileNumber).trim().toUpperCase()
+      : req.body.mv_file_number
+        ? String(req.body.mv_file_number).trim().toUpperCase()
+        : null;
+
+    db.serialize(() => {
+      db.run("UPDATE slots SET status = ? WHERE id = ?", [
+        newSlotStatus,
+        chosenSlot.id,
+      ]);
+      db.run(
+        "INSERT INTO tickets (slot_id, entry_time, vehicle_type, map_latitude, map_longitude, brand, color, year, plate_number, mv_file_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [chosenSlot.id, entryTime, vehicleType, mapLatitude, mapLongitude, brand, color, year, plateNumber, mvFileNumber],
+        function (insertErr) {
+          if (insertErr) return res.status(500).json({ error: insertErr.message });
+
+          logReport("vehicle_entered", `${schedule.label} entered lot`, {
+            severity: "info",
+            floor: chosenSlot.floor,
+            slotId: chosenSlot.id,
+            ticketId: this.lastID,
+          });
+
+          res.json({
+            ticketId: this.lastID,
+            slotId: chosenSlot.id,
+            floor: chosenSlot.floor,
+            entryTime,
+            vehicleType,
+            brand,
+            color,
+            year,
+            plateNumber,
+            mvFileNumber,
+            isReservedMotorcycleSlot: chosenSlot.isReservedMotorcycle,
+            slotCapacity: chosenSlot.capacity,
+            slotOccupied: newOccupied,
+            slotRemaining: newRemaining,
+          });
         },
       );
     });
   });
 });
 
-// POST /api/entry - Assign slot and create ticket
-app.post("/api/entry", (req, res) => {
-  // Fill floor 1 first, then 2, then 3
-  db.get(
-    "SELECT id, floor FROM slots WHERE status = 'available' ORDER BY floor ASC, id ASC LIMIT 1",
-    (err, slot) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!slot) {
-        logReport("capacity_issue", "Parking lot reached full capacity", {
-          severity: "warning",
-        });
-
-        return res.status(400).json({ error: "Parking is full" });
-      }
-
-      const entryTime = req.body.entryTime || new Date().toISOString();
-      const mapLatitude = req.body.mapLatitude ?? null;
-      const mapLongitude = req.body.mapLongitude ?? null;
-
-      if (
-        (mapLatitude !== null &&
-          (!Number.isFinite(Number(mapLatitude)) ||
-            Number(mapLatitude) < 14.3 ||
-            Number(mapLatitude) > 14.9)) ||
-        (mapLongitude !== null &&
-          (!Number.isFinite(Number(mapLongitude)) ||
-            Number(mapLongitude) < 120.8 ||
-            Number(mapLongitude) > 121.3))
-      ) {
-        return res
-          .status(400)
-          .json({ error: "Ticket map pin must be within Metro Manila." });
-      }
-
-      db.serialize(() => {
-        db.run("UPDATE slots SET status = 'occupied' WHERE id = ?", [slot.id]);
-        db.run(
-          "INSERT INTO tickets (slot_id, entry_time, map_latitude, map_longitude) VALUES (?, ?, ?, ?)",
-          [slot.id, entryTime, mapLatitude, mapLongitude],
-          function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-
-            logReport("vehicle_entered", "Vehicle entered lot", {
-              severity: "info",
-              floor: slot.floor,
-              slotId: slot.id,
-              ticketId: this.lastID,
-            });
-
-            res.json({
-              ticketId: this.lastID,
-              slotId: slot.id,
-              floor: slot.floor,
-              entryTime,
-            });
-          },
-        );
-      });
-    },
-  );
-});
-
-// GET /api/ticket/:id/fee - Calculate fee for display
+// GET /api/ticket/:id/fee - Calculate fee for display using ticket's vehicle_type
 app.get("/api/ticket/:id/fee", (req, res) => {
   const exitTime = req.query.exitTime || new Date().toISOString();
 
@@ -293,9 +575,11 @@ app.get("/api/ticket/:id/fee", (req, res) => {
       if (!ticket)
         return res.status(404).json({ error: "Active ticket not found" });
 
+      const vehicleType = ticket.vehicle_type || req.query.vehicleType || "car";
       const feeResult = calculateFeeAndStatus(
         ticket.entry_time,
         exitTime,
+        vehicleType,
       );
       if (feeResult.status === "error") {
         return res.status(400).json({ error: feeResult.error });
@@ -323,9 +607,11 @@ app.post("/api/exit", (req, res) => {
       if (!ticket)
         return res.status(404).json({ error: "Active ticket not found" });
 
+      const vehicleType = ticket.vehicle_type || req.body.vehicleType || "car";
       const feeResult = calculateFeeAndStatus(
         ticket.entry_time,
         exitTime,
+        vehicleType,
       );
       if (feeResult.status === "error") {
         return res.status(400).json({ error: feeResult.error });
@@ -335,27 +621,26 @@ app.post("/api/exit", (req, res) => {
 
       if (status === "towed") {
         db.serialize(() => {
-          db.run("UPDATE slots SET status = 'available' WHERE id = ?", [
-            ticket.slot_id,
-          ]);
           db.run(
             "UPDATE tickets SET exit_time = ?, status = 'towed', fee = 0 WHERE id = ?",
             [exitTime, ticketId],
-            (err) => {
-              if (err) return res.status(500).json({ error: err.message });
-              logReport(
-                "vehicle_towed",
-                "Vehicle marked as towed after 24+ hour stay",
-                {
-                  severity: "critical",
-                  slotId: ticket.slot_id,
-                  ticketId: ticketId,
-                },
-              );
-              res.json({
-                success: true,
-                status: "towed",
-                message: "Vehicle was towed. No fee collected.",
+            (updateErr) => {
+              if (updateErr) return res.status(500).json({ error: updateErr.message });
+              syncSlotsTableStatus(() => {
+                logReport(
+                  "vehicle_towed",
+                  "Vehicle marked as towed after 24+ hour stay",
+                  {
+                    severity: "critical",
+                    slotId: ticket.slot_id,
+                    ticketId: ticketId,
+                  },
+                );
+                res.json({
+                  success: true,
+                  status: "towed",
+                  message: "Vehicle was towed. No fee collected.",
+                });
               });
             },
           );
@@ -363,7 +648,7 @@ app.post("/api/exit", (req, res) => {
         return;
       }
 
-      if (!isValidPaymentAmount(amountReceived)) {
+      if (!isValidPaymentAmount(amountReceived, fee)) {
         logReport("payment_issue", `Invalid cash amount rejected: ₱${amountReceived}`, {
           severity: "warning",
           slotId: ticket.slot_id,
@@ -386,9 +671,6 @@ app.post("/api/exit", (req, res) => {
       const changeBreakdown = calculateChangeBreakdown(changeGiven);
 
       db.serialize(() => {
-        db.run("UPDATE slots SET status = 'available' WHERE id = ?", [
-          ticket.slot_id,
-        ]);
         db.run(
           "UPDATE tickets SET exit_time = ?, status = 'completed', fee = ?, amount_received = ?, change_given = ?, change_breakdown = ? WHERE id = ?",
           [
@@ -399,19 +681,21 @@ app.post("/api/exit", (req, res) => {
             JSON.stringify(changeBreakdown),
             ticketId,
           ],
-          (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            logReport("payment_completed", "Payment completed successfully", {
-              severity: "info",
-              slotId: ticket.slot_id,
-              ticketId: ticketId,
-            });
-            res.json({
-              success: true,
-              fee,
-              changeGiven,
-              changeBreakdown,
-              status: "completed",
+          (updateErr) => {
+            if (updateErr) return res.status(500).json({ error: updateErr.message });
+            syncSlotsTableStatus(() => {
+              logReport("payment_completed", "Payment completed successfully", {
+                severity: "info",
+                slotId: ticket.slot_id,
+                ticketId: ticketId,
+              });
+              res.json({
+                success: true,
+                fee,
+                changeGiven,
+                changeBreakdown,
+                status: "completed",
+              });
             });
           },
         );
@@ -914,7 +1198,9 @@ app.get("/api/recent-events", (req, res) => {
   const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
   const query = `
     SELECT r.id, r.type, r.severity, r.message, r.floor, r.slot_id, r.ticket_id, r.source, r.created_at,
-           t.fee, t.status AS ticket_status
+           t.vehicle_type, t.brand, t.color, t.year, t.plate_number, t.mv_file_number,
+           CASE WHEN r.type = 'payment_completed' THEN t.fee ELSE NULL END AS fee,
+           t.status AS ticket_status
     FROM reports r
     LEFT JOIN tickets t ON r.ticket_id = t.id
     ORDER BY r.created_at DESC, r.id DESC

@@ -5,10 +5,22 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ParkWise: Smarter Parking Analytics</title>
-    <script type="module" crossorigin src="/assets/index-DUn9BsNY.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DJKdDD0D.css">
+    <script>
+      // Front page is strictly light-mode only
+      try {
+        document.documentElement.classList.remove('dark');
+        document.documentElement.setAttribute('data-theme', 'light');
+        if (localStorage.getItem('parkwise_glass') === 'true') {
+          document.documentElement.classList.add('glass-effect');
+        } else {
+          document.documentElement.classList.remove('glass-effect');
+        }
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-7Ha9mvA0.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BEfoEzmN.css">
   </head>
-  <body>
+  <body class="bg-[#f8fafc] text-gray-900 font-sans antialiased">
     <div id="root"></div>
   </body>
 </html>

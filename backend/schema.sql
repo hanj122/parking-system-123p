@@ -1,7 +1,9 @@
 CREATE TABLE IF NOT EXISTS slots (
     id INTEGER PRIMARY KEY,
     floor INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'available'
+    status TEXT NOT NULL DEFAULT 'available',
+    reserved_for TEXT DEFAULT NULL,
+    capacity INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS tickets (
@@ -10,6 +12,12 @@ CREATE TABLE IF NOT EXISTS tickets (
     entry_time TEXT NOT NULL,
     exit_time TEXT,
     status TEXT NOT NULL DEFAULT 'active',
+    vehicle_type TEXT NOT NULL DEFAULT 'car',
+    brand TEXT,
+    color TEXT,
+    year INTEGER,
+    plate_number TEXT,
+    mv_file_number TEXT,
     fee REAL,
     amount_received REAL,
     change_given REAL,

@@ -47,6 +47,47 @@ function initDb() {
       });
     }
 
+    db.run(
+      "ALTER TABLE tickets ADD COLUMN vehicle_type TEXT NOT NULL DEFAULT 'car'",
+      (colErr) => {
+        if (colErr && !colErr.message.includes("duplicate column name")) {
+          console.error("Ticket vehicle_type column migration failed", colErr);
+        }
+      },
+    );
+
+    for (const columnDef of [
+      "brand TEXT",
+      "color TEXT",
+      "year INTEGER",
+      "plate_number TEXT",
+      "mv_file_number TEXT",
+    ]) {
+      db.run(`ALTER TABLE tickets ADD COLUMN ${columnDef}`, (colErr) => {
+        if (colErr && !colErr.message.includes("duplicate column name")) {
+          console.error(`Ticket column migration failed for ${columnDef}`, colErr);
+        }
+      });
+    }
+
+    db.run(
+      "ALTER TABLE slots ADD COLUMN reserved_for TEXT DEFAULT NULL",
+      (colErr) => {
+        if (colErr && !colErr.message.includes("duplicate column name")) {
+          console.error("Slots reserved_for column migration failed", colErr);
+        }
+      },
+    );
+
+    db.run(
+      "ALTER TABLE slots ADD COLUMN capacity INTEGER NOT NULL DEFAULT 1",
+      (colErr) => {
+        if (colErr && !colErr.message.includes("duplicate column name")) {
+          console.error("Slots capacity column migration failed", colErr);
+        }
+      },
+    );
+
     // Check if slots are initialized
     db.get("SELECT COUNT(*) as count FROM slots", (err, row) => {
       if (err) {
@@ -56,25 +97,69 @@ function initDb() {
       if (row.count === 0) {
         console.log("Initializing slots...");
         let stmt = db.prepare(
-          "INSERT INTO slots (id, floor, status) VALUES (?, ?, ?)",
+          "INSERT INTO slots (id, floor, status, reserved_for, capacity) VALUES (?, ?, ?, ?, ?)",
         );
 
         db.serialize(() => {
-          // Floor 1: 100-199
+          // Floor 1: 100-199 (100-119 reserved for motorcycles, capacity 6)
           for (let i = 100; i <= 199; i++) {
-            stmt.run(i, 1, "available");
+            const isMcReserved = i >= 100 && i <= 119;
+            stmt.run(
+              i,
+              1,
+              "available",
+              isMcReserved ? "motorcycle" : null,
+              isMcReserved ? 6 : 1,
+            );
           }
           // Floor 2: 200-299
           for (let i = 200; i <= 299; i++) {
-            stmt.run(i, 2, "available");
+            stmt.run(i, 2, "available", null, 1);
           }
           // Floor 3: 300-399
           for (let i = 300; i <= 399; i++) {
-            stmt.run(i, 3, "available");
+            stmt.run(i, 3, "available", null, 1);
           }
           stmt.finalize();
         });
         console.log("Slots initialized.");
+      } else {
+        db.serialize(() => {
+          db.run(
+            "UPDATE slots SET reserved_for = 'motorcycle', capacity = 6 WHERE floor = 1 AND id BETWEEN 100 AND 119",
+          );
+          db.run(
+            "UPDATE slots SET reserved_for = NULL, capacity = 1 WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)",
+          );
+
+          // Relocate any pre-existing active car tickets in 100-119 to free car slots (>= 120) so no car occupancy is lost and 100-119 are strictly motorcycle-only
+          db.all(
+            "SELECT id, slot_id FROM tickets WHERE status = 'active' AND COALESCE(vehicle_type, 'car') = 'car' AND slot_id BETWEEN 100 AND 119 ORDER BY id ASC",
+            (carErr, legacyCarTickets) => {
+              if (carErr || !legacyCarTickets || legacyCarTickets.length === 0) return;
+              db.all(
+                "SELECT id FROM slots WHERE id >= 120 AND id NOT IN (SELECT slot_id FROM tickets WHERE status = 'active') ORDER BY floor ASC, id ASC",
+                (slotErr, freeCarSlots) => {
+                  if (slotErr || !freeCarSlots) return;
+                  db.serialize(() => {
+                    legacyCarTickets.forEach((ticket, idx) => {
+                      const targetSlot = freeCarSlots[idx];
+                      if (targetSlot) {
+                        db.run("UPDATE tickets SET slot_id = ? WHERE id = ?", [
+                          targetSlot.id,
+                          ticket.id,
+                        ]);
+                        db.run("UPDATE slots SET status = 'occupied' WHERE id = ?", [
+                          targetSlot.id,
+                        ]);
+                      }
+                    });
+                  });
+                },
+              );
+            },
+          );
+        });
       }
     });
   });

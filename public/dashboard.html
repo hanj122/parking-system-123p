@@ -6,9 +6,35 @@
     <title>Admin Dashboard - ParkWise</title>
     <meta name="description" content="ParkWise Operator Analytics Dashboard" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" crossorigin href="/assets/index-DJKdDD0D.css" />
     <script>
-      // Automatically route into #/dashboard if no sub-route is provided
+      // Apply theme and glass effect before first paint to prevent flash
+      try {
+        const theme = localStorage.getItem('parkwise_theme') || 'light';
+        const isDark =
+          theme === 'dark' ||
+          (theme === 'system' &&
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+        if (localStorage.getItem('parkwise_glass') === 'true') {
+          document.documentElement.classList.add('glass-effect');
+        } else {
+          document.documentElement.classList.remove('glass-effect');
+        }
+        if (localStorage.getItem('parkwise_motion') === 'false') {
+          document.documentElement.classList.add('no-animations');
+        } else {
+          document.documentElement.classList.remove('no-animations');
+        }
+      } catch (e) {}
+
+      // Route into #/dashboard if no sub-route is provided
       if (
         !window.location.hash ||
         window.location.hash === "#" ||
@@ -18,9 +44,10 @@
         window.location.hash = "#/dashboard";
       }
     </script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BEfoEzmN.css" />
   </head>
   <body class="bg-[#f8fafc] dark:bg-[#09090b] text-gray-900 dark:text-gray-100 font-sans antialiased">
     <div id="root"></div>
-    <script type="module" crossorigin src="/assets/index-DUn9BsNY.js"></script>
+    <script type="module" crossorigin src="/assets/index-7Ha9mvA0.js"></script>
   </body>
 </html>
