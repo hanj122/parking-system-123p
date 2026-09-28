@@ -199,12 +199,21 @@ function logReport(type, message, options = {}) {
     floor = null,
     slotId = null,
     ticketId = null,
+    source = "system",
+    createdAt = new Date().toISOString(),
   } = options;
 
+  const derivedFloor =
+    floor !== null && floor !== undefined
+      ? floor
+      : slotId
+        ? Math.floor(Number(slotId) / 100)
+        : null;
+
   db.run(
-    `INSERT INTO reports (type, severity, message, floor, slot_id, ticket_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [type, severity, message, floor, slotId, ticketId],
+    `INSERT INTO reports (type, severity, message, floor, slot_id, ticket_id, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [type, severity, message, derivedFloor, slotId, ticketId, source, createdAt],
     (err) => {
       if (err) console.error("Failed to log report:", err.message);
     },
@@ -523,6 +532,13 @@ app.post("/api/entry", (req, res) => {
         ? String(req.body.mv_file_number).trim().toUpperCase()
         : null;
 
+    if (!plateNumber && !mvFileNumber) {
+      return res.status(400).json({
+        error:
+          "Vehicle identification required: Please provide either a Plate Number or an MV File Number.",
+      });
+    }
+
     db.serialize(() => {
       db.run("UPDATE slots SET status = ? WHERE id = ?", [
         newSlotStatus,
@@ -662,6 +678,16 @@ app.post("/api/exit", (req, res) => {
       }
 
       if (amountReceived < fee) {
+        logReport(
+          "payment_issue",
+          `Insufficient cash amount: ₱${amountReceived} (Total Fee: ₱${fee})`,
+          {
+            severity: "warning",
+            slotId: ticket.slot_id,
+            ticketId: ticketId,
+          },
+        );
+
         return res
           .status(400)
           .json({ error: `Insufficient amount. Fee is ₱${fee}` });
@@ -1197,13 +1223,23 @@ app.get("/api/analytics/revenue-trend", (req, res) => {
 app.get("/api/recent-events", (req, res) => {
   const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
   const query = `
-    SELECT r.id, r.type, r.severity, r.message, r.floor, r.slot_id, r.ticket_id, r.source, r.created_at,
+    SELECT r.id, r.type, r.severity, r.message,
+           COALESCE(r.floor, s.floor, ts.floor, CAST(COALESCE(r.slot_id, t.slot_id) / 100 AS INTEGER)) AS floor,
+           COALESCE(r.slot_id, t.slot_id) AS slot_id,
+           r.ticket_id, r.source,
+           CASE
+             WHEN r.created_at LIKE '% %' AND r.created_at NOT LIKE '%Z'
+             THEN REPLACE(r.created_at, ' ', 'T') || 'Z'
+             ELSE r.created_at
+           END AS created_at,
            t.vehicle_type, t.brand, t.color, t.year, t.plate_number, t.mv_file_number,
            CASE WHEN r.type = 'payment_completed' THEN t.fee ELSE NULL END AS fee,
            t.status AS ticket_status
     FROM reports r
     LEFT JOIN tickets t ON r.ticket_id = t.id
-    ORDER BY r.created_at DESC, r.id DESC
+    LEFT JOIN slots s ON r.slot_id = s.id
+    LEFT JOIN slots ts ON t.slot_id = ts.id
+    ORDER BY created_at DESC, r.id DESC
     LIMIT ?
   `;
   db.all(query, [limit], (err, rows) => {
@@ -1214,8 +1250,16 @@ app.get("/api/recent-events", (req, res) => {
 
 app.get("/api/reports", (req, res) => {
   db.all(
-    `SELECT * FROM reports
-     ORDER BY created_at DESC
+    `SELECT id, type, severity, message,
+            COALESCE(floor, CAST(slot_id / 100 AS INTEGER)) AS floor,
+            slot_id, ticket_id, source,
+            CASE
+              WHEN created_at LIKE '% %' AND created_at NOT LIKE '%Z'
+              THEN REPLACE(created_at, ' ', 'T') || 'Z'
+              ELSE created_at
+            END AS created_at
+     FROM reports
+     ORDER BY created_at DESC, id DESC
      LIMIT 50`,
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -1308,9 +1352,9 @@ app.post("/api/reports", (req, res) => {
 
   db.run(
     `INSERT INTO reports
-      (type, severity, message, floor, source)
-     VALUES (?, ?, ?, ?, 'admin')`,
-    [type, severity, cleanMessage, normalizedFloor],
+      (type, severity, message, floor, source, created_at)
+     VALUES (?, ?, ?, ?, 'admin', ?)`,
+    [type, severity, cleanMessage, normalizedFloor, new Date().toISOString()],
     function (err) {
       if (err) {
         console.error("Failed to create report:", err.message);

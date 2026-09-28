@@ -608,9 +608,48 @@ document.addEventListener("DOMContentLoaded", () => {
   const entryYearInput = document.getElementById("entry-year");
   const entryPlateInput = document.getElementById("entry-plate");
   const entryMvFileInput = document.getElementById("entry-mv-file");
+  const entryIdBadge = document.getElementById("entry-id-badge");
+  const entryIdError = document.getElementById("entry-id-error");
   const entryDetailsError = document.getElementById("entry-details-error");
   const btnEntryCancel = document.getElementById("btn-entry-cancel");
   const btnEntryConfirm = document.getElementById("btn-entry-confirm");
+
+  function clearIdError() {
+    if (entryIdError) {
+      entryIdError.textContent = "";
+      entryIdError.classList.add("hidden");
+    }
+    if (entryDetailsError) {
+      entryDetailsError.textContent = "";
+      entryDetailsError.classList.add("hidden");
+    }
+    if (entryPlateInput) {
+      entryPlateInput.classList.remove("border-rose-500", "bg-rose-50/50");
+      entryPlateInput.setAttribute("aria-invalid", "false");
+    }
+    if (entryMvFileInput) {
+      entryMvFileInput.classList.remove("border-rose-500", "bg-rose-50/50");
+      entryMvFileInput.setAttribute("aria-invalid", "false");
+    }
+    if (entryIdBadge) {
+      const hasValue = Boolean(
+        (entryPlateInput && entryPlateInput.value.trim()) ||
+        (entryMvFileInput && entryMvFileInput.value.trim())
+      );
+      if (hasValue) {
+        entryIdBadge.className =
+          "text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200";
+        entryIdBadge.textContent = "Provided ✓";
+      } else {
+        entryIdBadge.className =
+          "text-[10px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200";
+        entryIdBadge.textContent = "Required (Plate or MV)";
+      }
+    }
+  }
+
+  if (entryPlateInput) entryPlateInput.addEventListener("input", clearIdError);
+  if (entryMvFileInput) entryMvFileInput.addEventListener("input", clearIdError);
 
   let selectedBrandRegion = "Japanese";
   let selectedBrandName = "Toyota";
@@ -704,10 +743,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (entryYearInput) entryYearInput.value = "2024";
     if (entryPlateInput) entryPlateInput.value = "";
     if (entryMvFileInput) entryMvFileInput.value = "";
-    if (entryDetailsError) {
-      entryDetailsError.textContent = "";
-      entryDetailsError.classList.add("hidden");
-    }
+    clearIdError();
     if (entryDetailsModal) {
       entryDetailsModal.classList.remove("hidden");
     }
@@ -755,8 +791,36 @@ document.addEventListener("DOMContentLoaded", () => {
       const brand = (entryBrandInput && entryBrandInput.value) || selectedBrandName || "Toyota";
       const color = (entryColorInput && entryColorInput.value) || "White";
       const yearVal = entryYearInput && entryYearInput.value ? parseInt(entryYearInput.value, 10) : 2024;
-      const plateNumber = entryPlateInput && entryPlateInput.value.trim() ? entryPlateInput.value.trim().toUpperCase() : null;
-      const mvFileNumber = entryMvFileInput && entryMvFileInput.value.trim() ? entryMvFileInput.value.trim().toUpperCase() : null;
+      const plateNumber =
+        entryPlateInput && entryPlateInput.value.trim()
+          ? entryPlateInput.value.trim().toUpperCase()
+          : null;
+      const mvFileNumber =
+        entryMvFileInput && entryMvFileInput.value.trim()
+          ? entryMvFileInput.value.trim().toUpperCase()
+          : null;
+
+      if (!plateNumber && !mvFileNumber) {
+        const errorMsg =
+          "Please enter either a Plate Number or an MV File Number to confirm vehicle entry.";
+        if (entryIdError) {
+          entryIdError.textContent = errorMsg;
+          entryIdError.classList.remove("hidden");
+        } else if (entryDetailsError) {
+          entryDetailsError.textContent = errorMsg;
+          entryDetailsError.classList.remove("hidden");
+        }
+        if (entryPlateInput) {
+          entryPlateInput.classList.add("border-rose-500", "bg-rose-50/50");
+          entryPlateInput.setAttribute("aria-invalid", "true");
+          entryPlateInput.focus();
+        }
+        if (entryMvFileInput) {
+          entryMvFileInput.classList.add("border-rose-500", "bg-rose-50/50");
+          entryMvFileInput.setAttribute("aria-invalid", "true");
+        }
+        return;
+      }
 
       if (btnEntryConfirm) {
         btnEntryConfirm.disabled = true;

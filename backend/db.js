@@ -88,6 +88,20 @@ function initDb() {
       },
     );
 
+    // Normalize reports timestamps to ISO 8601 UTC and backfill missing floor data
+    db.run(
+      "UPDATE reports SET created_at = REPLACE(created_at, ' ', 'T') || 'Z' WHERE created_at LIKE '% %' AND created_at NOT LIKE '%Z'",
+      (repErr) => {
+        if (repErr) console.error("Report timestamp normalization failed", repErr);
+      }
+    );
+    db.run(
+      "UPDATE reports SET floor = CAST(slot_id / 100 AS INTEGER) WHERE floor IS NULL AND slot_id IS NOT NULL",
+      (repErr) => {
+        if (repErr) console.error("Report floor backfill failed", repErr);
+      }
+    );
+
     // Check if slots are initialized
     db.get("SELECT COUNT(*) as count FROM slots", (err, row) => {
       if (err) {
