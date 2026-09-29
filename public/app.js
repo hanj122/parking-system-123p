@@ -82,7 +82,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let reservedMotorcycleSlots = [];
 
-<<<<<<< HEAD
   let lotPin = null;
   let lotCircle = null;
 
@@ -224,7 +223,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-=======
   function setVehicleTypeSelection(type) {
     const schedule = getFeeSchedule(type);
     selectedVehicleType = schedule.type;
@@ -276,8 +274,6 @@ document.addEventListener("DOMContentLoaded", () => {
     renderTickets(currentTicketsData, false);
   }
   window.goToTicketsPage = goToTicketsPage;
-
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
   // ── Live polling ──────────────────────────────────────────────────────────
   fetchStatus();
   setInterval(fetchStatus, 3000);
@@ -1009,11 +1005,7 @@ document.addEventListener("DOMContentLoaded", () => {
               ? ` [MV: ${data.mvFileNumber}]`
               : "";
           showToast(
-<<<<<<< HEAD
-            `✓ Car successfully entered! <strong>Assigned Slot ${data.slotId} (Floor ${data.floor})</strong> — Ticket #<strong>${data.ticketId}</strong>`,
-=======
             `✓ ${schedule.label}${idSummary} entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}${remainingNote}) - Ticket #<strong>${data.ticketId}</strong>`,
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
           );
 
           searchedTicketId = null;

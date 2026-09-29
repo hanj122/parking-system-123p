@@ -118,9 +118,25 @@ async function initDatabase() {
     console.log("✅ Successfully connected to Supabase PostgreSQL database!");
 
     // 1. Provision compatibility functions
-    await client.query(COMPAT_SQL);
+    try {
+      await client.query(COMPAT_SQL);
+    } catch (compatErr) {
+      // Functions already created or concurrent execution
+    }
 
-    // 2. Provision database schema
+    // 2. Provision database schema & migrations
+    try {
+      await client.query(`
+        ALTER TABLE IF EXISTS demand_forecasts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+        ALTER TABLE IF EXISTS demand_forecasts ADD COLUMN IF NOT EXISTS external_id TEXT;
+        ALTER TABLE IF EXISTS demand_forecasts ADD COLUMN IF NOT EXISTS latitude REAL;
+        ALTER TABLE IF EXISTS demand_forecasts ADD COLUMN IF NOT EXISTS longitude REAL;
+        ALTER TABLE IF EXISTS demand_forecasts ADD COLUMN IF NOT EXISTS location TEXT;
+      `);
+    } catch (migErr) {
+      console.warn("Notice during column migrations:", migErr.message);
+    }
+
     const schemaPath = path.join(__dirname, "schema.sql");
     if (fs.existsSync(schemaPath)) {
       const schemaSql = fs.readFileSync(schemaPath, "utf8");
@@ -317,6 +333,8 @@ const db = {
   serialize: (fn) => {
     if (fn) fn();
   },
+  pool,
+  initDatabase,
 };
 
 module.exports = db;
