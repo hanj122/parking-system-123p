@@ -333,6 +333,23 @@ const db = {
   serialize: (fn) => {
     if (fn) fn();
   },
+
+  // Handles db.prepare(sql)
+  prepare: (sql) => {
+    return {
+      run: (...args) => {
+        let cb = null;
+        let params = args;
+        if (typeof args[args.length - 1] === "function") {
+          cb = params.pop();
+        }
+        db.run(sql, params, cb);
+      },
+      finalize: (cb) => {
+        if (cb) cb();
+      },
+    };
+  },
   pool,
   initDatabase,
 };

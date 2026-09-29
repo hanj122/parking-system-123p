@@ -1454,7 +1454,7 @@ app.get("/api/recent-events", (req, res) => {
   });
 });
 
-// DELETE /api/reports/:id - Remove a report ticket
+// DELETE /api/reports/:id - Remove a report ticket and reopen closed slots
 app.delete("/api/reports/:id", (req, res) => {
   const reportId = Number.parseInt(req.params.id, 10);
 
@@ -1462,18 +1462,57 @@ app.delete("/api/reports/:id", (req, res) => {
     return res.status(400).json({ error: "A valid report id is required." });
   }
 
-  db.run("DELETE FROM reports WHERE id = ?", [reportId], function (err) {
-    if (err) {
-      console.error("Failed to delete report:", err.message);
-      return res.status(500).json({ error: "Failed to delete report." });
-    }
+  // 1. Find all slots attached to this report
+  db.all(
+    "SELECT slot_id FROM report_slots WHERE report_id = ?",
+    [reportId],
+    (findErr, attachedSlots) => {
+      if (findErr) {
+        console.warn(
+          "Could not query report_slots before deleting:",
+          findErr.message,
+        );
+      }
 
-    if (this.changes === 0) {
-      return res.status(404).json({ error: "Report not found." });
-    }
+      db.run("DELETE FROM reports WHERE id = ?", [reportId], function (err) {
+        if (err) {
+          console.error("Failed to delete report:", err.message);
+          return res.status(500).json({ error: "Failed to delete report." });
+        }
 
-    res.json({ success: true, deletedId: reportId });
-  });
+        if (this.changes === 0) {
+          return res.status(404).json({ error: "Report not found." });
+        }
+
+        // 2. Reopen attached slots if they were closed
+        if (attachedSlots && attachedSlots.length > 0) {
+          let reopenedCount = 0;
+          const totalAttached = attachedSlots.length;
+          attachedSlots.forEach(({ slot_id }) => {
+            db.get(
+              "SELECT id FROM tickets WHERE slot_id = ? AND status = 'active'",
+              [slot_id],
+              (ticketErr, activeTicket) => {
+                const restoredStatus = activeTicket ? "occupied" : "available";
+                db.run(
+                  "UPDATE slots SET status = ? WHERE id = ?",
+                  [restoredStatus, slot_id],
+                  () => {
+                    reopenedCount++;
+                    if (reopenedCount === totalAttached) {
+                      res.json({ success: true, deletedId: reportId });
+                    }
+                  },
+                );
+              },
+            );
+          });
+        } else {
+          res.json({ success: true, deletedId: reportId });
+        }
+      });
+    },
+  );
 });
 
 // POST /api/reports - Create a manual admin parking lot report with multi-slot selection & closure
@@ -1638,45 +1677,55 @@ app.post("/api/reports", (req, res) => {
 
       const reportId = this.lastID;
 
+      const finalizeReportCreation = () => {
+        db.get(
+          "SELECT * FROM reports WHERE id = ?",
+          [reportId],
+          (selectErr, report) => {
+            if (selectErr) {
+              return res.status(500).json({
+                error: "Report was created but could not be retrieved.",
+              });
+            }
+
+            res.status(201).json({
+              success: true,
+              id: reportId,
+              report: {
+                ...report,
+                slotIds: validatedSlotIds,
+              },
+              affectedSlots: validatedSlotIds,
+            });
+          },
+        );
+      };
+
       // Close selected slots and register in report_slots
       if (validatedSlotIds.length > 0) {
-        db.serialize(() => {
-          const insertJoinStmt = db.prepare(
-            "INSERT OR IGNORE INTO report_slots (report_id, slot_id) VALUES (?, ?)",
-          );
-          const updateSlotStmt = db.prepare(
-            "UPDATE slots SET status = 'closed' WHERE id = ?",
-          );
-
-          validatedSlotIds.forEach((sId) => {
-            insertJoinStmt.run(reportId, sId);
-            updateSlotStmt.run(sId);
-          });
-
-          insertJoinStmt.finalize();
-          updateSlotStmt.finalize();
-        });
-      }
-
-      db.get(
-        "SELECT * FROM reports WHERE id = ?",
-        [reportId],
-        (selectErr, report) => {
-          if (selectErr) {
-            return res.status(500).json({
-              error: "Report was created but could not be retrieved.",
-            });
-          }
-
-          res.status(201).json({
-            success: true,
-            report: {
-              ...report,
-              slotIds: validatedSlotIds,
+        let completed = 0;
+        const total = validatedSlotIds.length;
+        validatedSlotIds.forEach((sId) => {
+          db.run(
+            "INSERT INTO report_slots (report_id, slot_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            [reportId, sId],
+            () => {
+              db.run(
+                "UPDATE slots SET status = 'closed' WHERE id = ?",
+                [sId],
+                () => {
+                  completed++;
+                  if (completed === total) {
+                    finalizeReportCreation();
+                  }
+                },
+              );
             },
-          });
-        },
-      );
+          );
+        });
+      } else {
+        finalizeReportCreation();
+      }
     },
   );
 });
