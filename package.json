@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node --env-file=.env backend/server.js",
-    "seed:analytics": "node data/seed-analytics.js",
+    "seed:analytics": "node --env-file=.env data/seed-analytics.js",
+    "seed:supabase": "node --env-file=.env data/seed-supabase.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -23,7 +24,6 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "pg": "^8.23.0",
-    "sqlite3": "^6.0.1"
+    "pg": "^8.23.0"
   }
 }

@@ -65,7 +65,7 @@ pool.connect((err, client, release) => {
   }
 });
 
-// Converts SQLite "?" placeholders to Postgres "$1, $2, $3"
+// Converts standard "?" positional placeholders to PostgreSQL "$1, $2, $3"
 function formatSql(sql) {
   let index = 1;
   return sql.replace(/\?/g, () => `$${index++}`);
