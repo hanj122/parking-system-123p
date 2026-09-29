@@ -1,3 +1,7 @@
+try {
+  require("dotenv").config();
+} catch (e) {}
+
 const { Pool } = require("pg");
 
 // Automatically connects to your Supabase DATABASE_URL from .env
