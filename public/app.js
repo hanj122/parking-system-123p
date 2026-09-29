@@ -26,8 +26,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const paymentError = document.getElementById("payment-error");
   const paymentSection = document.getElementById("payment-section");
   const receiptSection = document.getElementById("receipt-section");
-  const coReceiptSlot = document.getElementById("co-receipt-slot");
-  const coReceiptFloor = document.getElementById("co-receipt-floor");
   const coChange = document.getElementById("co-change");
   const coBreakdown = document.getElementById("co-breakdown");
   const btnCancel = document.getElementById("btn-cancel");
@@ -65,9 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function getFeeSchedule(vehicleType) {
-    const normalized = String(vehicleType || "car")
-      .toLowerCase()
-      .trim();
+    const normalized = String(vehicleType || "car").toLowerCase().trim();
     return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
   }
 
@@ -83,147 +79,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentTicketsData = [];
 
   let reservedMotorcycleSlots = [];
-
-  let lotPin = null;
-  let lotCircle = null;
-
-  async function initializeTicketMap() {
-    if (!ticketMapElement) return;
-
-    try {
-      if (!window.L) throw new Error("Leaflet failed to load");
-
-      // Fetch admin saved lot location
-      let lotLat = 14.5995;
-      let lotLng = 120.9842;
-      let lotRadius = 3.0;
-      try {
-        const locRes = await fetch("/api/lot-location");
-        if (locRes.ok) {
-          const locData = await locRes.json();
-          if (locData && locData.latitude && locData.longitude) {
-            lotLat = locData.latitude;
-            lotLng = locData.longitude;
-            if (locData.radius_km) lotRadius = Number(locData.radius_km);
-          }
-        }
-      } catch (e) {
-        console.warn("Could not fetch lot location for demo map:", e);
-      }
-
-      ticketMap = L.map(ticketMapElement).setView([lotLat, lotLng], 13);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-      }).addTo(ticketMap);
-
-      // Render Admin Lot Location Marker & Dynamic radius circle
-      const lotIcon = L.divIcon({
-        className: "custom-lot-pin",
-        html: `<div style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#0071e3;color:white;box-shadow:0 3px 12px rgba(0,0,0,0.4);border:2.5px solid white;"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'></path><circle cx='12' cy='10' r='3'></circle></svg></div>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 34],
-        popupAnchor: [0, -34],
-      });
-
-      lotPin = L.marker([lotLat, lotLng], {
-        icon: lotIcon,
-        title: "ParkWise Lot Location",
-      })
-        .addTo(ticketMap)
-        .bindPopup(
-          `<b>ParkWise Lot Location</b><br>${lotRadius.toFixed(1)} km Forecast Radius`,
-        );
-
-      lotCircle = L.circle([lotLat, lotLng], {
-        radius: lotRadius * 1000,
-        color: "#34c759",
-        fillColor: "#34c759",
-        fillOpacity: 0.15,
-        weight: 2,
-      }).addTo(ticketMap);
-
-      if (ticketMapStatus) {
-        ticketMapStatus.textContent = `Synced with Lot Location (${lotRadius.toFixed(1)}km Radius)`;
-      }
-
-      const vehicleIcon = L.divIcon({
-        className: "custom-vehicle-pin",
-        html: `<div style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#ff9500;color:white;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid white;"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'></circle><polygon points='16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76'></polygon></svg></div>`,
-        iconSize: [30, 30],
-        iconAnchor: [15, 15],
-      });
-
-      ticketMap.on("click", (event) => {
-        ticketMapLocation = {
-          latitude: event.latlng.lat,
-          longitude: event.latlng.lng,
-        };
-        if (!ticketMarker) {
-          ticketMarker = L.marker(event.latlng, {
-            icon: vehicleIcon,
-            opacity: 0.95,
-          }).addTo(ticketMap);
-        } else {
-          ticketMarker.setLatLng(event.latlng);
-        }
-        if (ticketMapStatus)
-          ticketMapStatus.textContent = "Vehicle Origin Pinned";
-      });
-
-      if (window.ResizeObserver && ticketMapElement) {
-        new ResizeObserver(() => {
-          if (ticketMap) ticketMap.invalidateSize();
-        }).observe(ticketMapElement);
-      }
-
-      setTimeout(() => ticketMap.invalidateSize(), 150);
-    } catch (error) {
-      console.error("Ticket map failed to load:", error);
-      ticketMapElement.innerHTML =
-        '<p class="p-4 text-xs text-red-600">Leaflet map could not be loaded.</p>';
-    }
-  }
-
-  // ── Sync Demo Lot Location with Admin Updates ───────────────────────────
-  let lastSyncedRadius = 3.0;
-  async function syncDemoLotLocation() {
-    if (!ticketMap || !lotPin || !lotCircle) return;
-    try {
-      const locRes = await fetch("/api/lot-location");
-      if (locRes.ok) {
-        const locData = await locRes.json();
-        if (locData && locData.latitude && locData.longitude) {
-          const curPos = lotPin.getLatLng();
-          const targetRad = Number(locData.radius_km || 3.0);
-          if (
-            Math.abs(curPos.lat - locData.latitude) > 0.0001 ||
-            Math.abs(curPos.lng - locData.longitude) > 0.0001
-          ) {
-            lotPin.setLatLng([locData.latitude, locData.longitude]);
-            lotCircle.setLatLng([locData.latitude, locData.longitude]);
-            ticketMap.setView([locData.latitude, locData.longitude]);
-          }
-          if (Math.abs(lastSyncedRadius - targetRad) > 0.01) {
-            lastSyncedRadius = targetRad;
-            lotCircle.setRadius(targetRad * 1000);
-            lotPin.setPopupContent(
-              `<b>ParkWise Lot Location</b><br>${targetRad.toFixed(1)} km Forecast Radius`,
-            );
-            if (
-              ticketMapStatus &&
-              ticketMapStatus.textContent.includes("Synced")
-            ) {
-              ticketMapStatus.textContent = `Synced with Lot Location (${targetRad.toFixed(1)}km Radius)`;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      // silent
-    }
-  }
 
   function setVehicleTypeSelection(type) {
     const schedule = getFeeSchedule(type);
@@ -255,11 +110,10 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
-  window.setQuickAmount = function (amount) {
+  window.setQuickAmount = function(amount) {
     if (!cashInput) return;
-    if (amount === "exact") {
-      cashInput.value =
-        currentFee || getFeeSchedule(currentVehicleType).baseRate;
+    if (amount === 'exact') {
+      cashInput.value = currentFee || getFeeSchedule(currentVehicleType).baseRate;
     } else {
       cashInput.value = amount;
     }
@@ -271,17 +125,16 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function goToTicketsPage(page) {
-    const totalPages =
-      Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
+    const totalPages = Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
     if (page < 1 || page > totalPages) return;
     currentTicketsPage = page;
     renderTickets(currentTicketsData, false);
   }
   window.goToTicketsPage = goToTicketsPage;
+
   // ── Live polling ──────────────────────────────────────────────────────────
   fetchStatus();
   setInterval(fetchStatus, 3000);
-  setInterval(syncDemoLotLocation, 3000);
 
   async function loadKpis() {
     try {
@@ -527,8 +380,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const totalPages =
-      Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
+    const totalPages = Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
     if (resetPage) {
       currentTicketsPage = 1;
     } else {
@@ -537,10 +389,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const startIndex = (currentTicketsPage - 1) * TICKETS_PER_PAGE;
-    const endIndex = Math.min(
-      startIndex + TICKETS_PER_PAGE,
-      currentTicketsData.length,
-    );
+    const endIndex = Math.min(startIndex + TICKETS_PER_PAGE, currentTicketsData.length);
     const pagedTickets = currentTicketsData.slice(startIndex, endIndex);
 
     ticketsList.innerHTML = "";
@@ -548,15 +397,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const schedule = getFeeSchedule(t.vehicle_type);
       const isReservedMcSlot =
         Boolean(t.is_reserved_motorcycle_slot) ||
-        (Number(t.floor) === 1 &&
-          Number(t.slot_id) >= 100 &&
-          Number(t.slot_id) <= 120);
+        (Number(t.floor) === 1 && Number(t.slot_id) >= 100 && Number(t.slot_id) <= 120);
       let slotDetailText = `${schedule.label} · Slot ${t.slot_id} · Floor ${t.floor}`;
       if (isReservedMcSlot) {
-        const used = Math.min(
-          6,
-          Math.max(0, Number(t.slot_motorcycle_count || 1)),
-        );
+        const used = Math.min(6, Math.max(0, Number(t.slot_motorcycle_count || 1)));
         const rem =
           t.slot_remaining !== undefined
             ? Number(t.slot_remaining)
@@ -570,7 +414,10 @@ document.addEventListener("DOMContentLoaded", () => {
         : t.mv_file_number
           ? `MV File: ${t.mv_file_number}`
           : null;
-      const vehicleMetaLine = [vehicleInfoParts.join(" · "), idBadge]
+      const vehicleMetaLine = [
+        vehicleInfoParts.join(" · "),
+        idBadge,
+      ]
         .filter(Boolean)
         .join(" · ");
 
@@ -634,8 +481,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 onclick="window.goToTicketsPage(${p})"
                 class="${
                   isActive
-                    ? "bg-[#1d1d1f] text-white font-bold"
-                    : "bg-white text-[#1d1d1f] hover:bg-[#f5f5f7] border border-black/5 font-medium"
+                    ? 'bg-[#1d1d1f] text-white font-bold'
+                    : 'bg-white text-[#1d1d1f] hover:bg-[#f5f5f7] border border-black/5 font-medium'
                 } w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-xs transition-colors cursor-pointer shadow-xs"
                 aria-label="Go to page ${p}"
               >
@@ -743,90 +590,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const MOTORCYCLE_BRANDS_BY_REGION = {
     Japanese: ["Honda", "Yamaha", "Kawasaki", "Suzuki"],
-    Chinese: [
-      "CFMOTO",
-      "QJ Motor",
-      "Benelli",
-      "Bristol",
-      "Loncin",
-      "Rusi",
-      "Motorstar",
-    ],
+    Chinese: ["CFMOTO", "QJ Motor", "Benelli", "Bristol", "Loncin", "Rusi", "Motorstar"],
     American: ["Harley-Davidson", "Indian Motorcycle"],
-    European: [
-      "Vespa",
-      "KTM",
-      "Ducati",
-      "BMW Motorrad",
-      "Husqvarna",
-      "Triumph",
-      "Aprilia",
-      "Piaggio",
-    ],
+    European: ["Vespa", "KTM", "Ducati", "BMW Motorrad", "Husqvarna", "Triumph", "Aprilia", "Piaggio"],
     Taiwanese: ["Kymco", "SYM"],
     Indian: ["Bajaj", "TVS", "Royal Enfield"],
   };
 
   const entryDetailsModal = document.getElementById("entry-details-modal");
   const entryDetailsForm = document.getElementById("entry-details-form");
-  const entryModalVehicleBadge = document.getElementById(
-    "entry-modal-vehicle-badge",
-  );
+  const entryModalVehicleBadge = document.getElementById("entry-modal-vehicle-badge");
   const entryBrandInput = document.getElementById("entry-brand");
-  const entrySelectedBrandSummary = document.getElementById(
-    "entry-selected-brand-summary",
-  );
-  const entryBrandRegionsContainer = document.getElementById(
-    "entry-brand-regions",
-  );
+  const entrySelectedBrandSummary = document.getElementById("entry-selected-brand-summary");
+  const entryBrandRegionsContainer = document.getElementById("entry-brand-regions");
   const entryBrandListContainer = document.getElementById("entry-brand-list");
   const entryColorInput = document.getElementById("entry-color");
   const entryYearInput = document.getElementById("entry-year");
   const entryPlateInput = document.getElementById("entry-plate");
   const entryMvFileInput = document.getElementById("entry-mv-file");
-  const entryIdBadge = document.getElementById("entry-id-badge");
-  const entryIdError = document.getElementById("entry-id-error");
   const entryDetailsError = document.getElementById("entry-details-error");
   const btnEntryCancel = document.getElementById("btn-entry-cancel");
   const btnEntryConfirm = document.getElementById("btn-entry-confirm");
-
-  function clearIdError() {
-    if (entryIdError) {
-      entryIdError.textContent = "";
-      entryIdError.classList.add("hidden");
-    }
-    if (entryDetailsError) {
-      entryDetailsError.textContent = "";
-      entryDetailsError.classList.add("hidden");
-    }
-    if (entryPlateInput) {
-      entryPlateInput.classList.remove("border-rose-500", "bg-rose-50/50");
-      entryPlateInput.setAttribute("aria-invalid", "false");
-    }
-    if (entryMvFileInput) {
-      entryMvFileInput.classList.remove("border-rose-500", "bg-rose-50/50");
-      entryMvFileInput.setAttribute("aria-invalid", "false");
-    }
-    if (entryIdBadge) {
-      const hasValue = Boolean(
-        (entryPlateInput && entryPlateInput.value.trim()) ||
-        (entryMvFileInput && entryMvFileInput.value.trim()),
-      );
-      if (hasValue) {
-        entryIdBadge.className =
-          "text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200";
-        entryIdBadge.textContent = "Provided ✓";
-      } else {
-        entryIdBadge.className =
-          "text-[10px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200";
-        entryIdBadge.textContent = "Required (Plate or MV)";
-      }
-    }
-  }
-
-  if (entryPlateInput) entryPlateInput.addEventListener("input", clearIdError);
-  if (entryMvFileInput)
-    entryMvFileInput.addEventListener("input", clearIdError);
 
   let selectedBrandRegion = "Japanese";
   let selectedBrandName = "Toyota";
@@ -862,10 +646,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.addEventListener("click", () => {
         selectedBrandRegion = region;
         const regionBrands = brandMap[region] || [];
-        if (
-          !regionBrands.includes(selectedBrandName) &&
-          regionBrands.length > 0
-        ) {
+        if (!regionBrands.includes(selectedBrandName) && regionBrands.length > 0) {
           selectedBrandName = regionBrands[0];
         }
         renderBrandSelector();
@@ -923,7 +704,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (entryYearInput) entryYearInput.value = "2024";
     if (entryPlateInput) entryPlateInput.value = "";
     if (entryMvFileInput) entryMvFileInput.value = "";
-    clearIdError();
+    if (entryDetailsError) {
+      entryDetailsError.textContent = "";
+      entryDetailsError.classList.add("hidden");
+    }
     if (entryDetailsModal) {
       entryDetailsModal.classList.remove("hidden");
     }
@@ -947,11 +731,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   window.addEventListener("keydown", (e) => {
-    if (
-      e.key === "Escape" &&
-      entryDetailsModal &&
-      !entryDetailsModal.classList.contains("hidden")
-    ) {
+    if (e.key === "Escape" && entryDetailsModal && !entryDetailsModal.classList.contains("hidden")) {
       closeEntryDetailsModal();
     }
   });
@@ -972,45 +752,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? new Date(simEntryTime.value).toISOString()
           : new Date().toISOString();
 
-      const brand =
-        (entryBrandInput && entryBrandInput.value) ||
-        selectedBrandName ||
-        "Toyota";
+      const brand = (entryBrandInput && entryBrandInput.value) || selectedBrandName || "Toyota";
       const color = (entryColorInput && entryColorInput.value) || "White";
-      const yearVal =
-        entryYearInput && entryYearInput.value
-          ? parseInt(entryYearInput.value, 10)
-          : 2024;
-      const plateNumber =
-        entryPlateInput && entryPlateInput.value.trim()
-          ? entryPlateInput.value.trim().toUpperCase()
-          : null;
-      const mvFileNumber =
-        entryMvFileInput && entryMvFileInput.value.trim()
-          ? entryMvFileInput.value.trim().toUpperCase()
-          : null;
-
-      if (!plateNumber && !mvFileNumber) {
-        const errorMsg =
-          "Please enter either a Plate Number or an MV File Number to confirm vehicle entry.";
-        if (entryIdError) {
-          entryIdError.textContent = errorMsg;
-          entryIdError.classList.remove("hidden");
-        } else if (entryDetailsError) {
-          entryDetailsError.textContent = errorMsg;
-          entryDetailsError.classList.remove("hidden");
-        }
-        if (entryPlateInput) {
-          entryPlateInput.classList.add("border-rose-500", "bg-rose-50/50");
-          entryPlateInput.setAttribute("aria-invalid", "true");
-          entryPlateInput.focus();
-        }
-        if (entryMvFileInput) {
-          entryMvFileInput.classList.add("border-rose-500", "bg-rose-50/50");
-          entryMvFileInput.setAttribute("aria-invalid", "true");
-        }
-        return;
-      }
+      const yearVal = entryYearInput && entryYearInput.value ? parseInt(entryYearInput.value, 10) : 2024;
+      const plateNumber = entryPlateInput && entryPlateInput.value.trim() ? entryPlateInput.value.trim().toUpperCase() : null;
+      const mvFileNumber = entryMvFileInput && entryMvFileInput.value.trim() ? entryMvFileInput.value.trim().toUpperCase() : null;
 
       if (btnEntryConfirm) {
         btnEntryConfirm.disabled = true;
@@ -1035,17 +781,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!res.ok) {
           if (entryDetailsError) {
-            entryDetailsError.textContent =
-              data.error || "Unable to enter lot.";
+            entryDetailsError.textContent = data.error || "Unable to enter lot.";
             entryDetailsError.classList.remove("hidden");
           } else {
             showToast(`! ${data.error || "Unable to enter lot."}`, true);
           }
         } else {
           closeEntryDetailsModal();
-          const schedule = getFeeSchedule(
-            data.vehicleType || selectedVehicleType,
-          );
+          const schedule = getFeeSchedule(data.vehicleType || selectedVehicleType);
           const remainingNote = data.isReservedMotorcycleSlot
             ? `, ${data.slotRemaining} of ${data.slotCapacity} remaining in slot`
             : "";
@@ -1121,8 +864,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (coVehicleType) coVehicleType.textContent = initialSchedule.label;
     if (coSlotId) coSlotId.textContent = slotId;
     if (coFloor) coFloor.textContent = floor;
-    if (coReceiptSlot) coReceiptSlot.textContent = slotId;
-    if (coReceiptFloor) coReceiptFloor.textContent = floor;
     if (coEntryTime)
       coEntryTime.textContent = new Date(entryTime).toLocaleString();
 
@@ -1132,8 +873,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (coExitTime) coExitTime.textContent = "";
     if (coRateTier) {
       coRateTier.textContent = "-";
-      coRateTier.className =
-        "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#e5e5ea] text-[#1d1d1f]";
+      coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#e5e5ea] text-[#1d1d1f]";
     }
     if (coFeeNote) coFeeNote.textContent = "";
     if (cashInput) cashInput.value = "";
@@ -1157,9 +897,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (modal) modal.classList.remove("hidden");
 
     // Fetch fee preview
-    const queryParts = [
-      `vehicleType=${encodeURIComponent(currentVehicleType)}`,
-    ];
+    const queryParts = [`vehicleType=${encodeURIComponent(currentVehicleType)}`];
     if (simExitTime && simExitTime.value) {
       queryParts.push(
         `exitTime=${encodeURIComponent(new Date(simExitTime.value).toISOString())}`,
@@ -1189,16 +927,13 @@ document.addEventListener("DOMContentLoaded", () => {
         if (coRateTier) {
           if (data.status === "towed") {
             coRateTier.textContent = "Towed";
-            coRateTier.className =
-              "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700";
+            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700";
           } else if (data.isPeak) {
             coRateTier.textContent = "Peak Demand (1.5x)";
-            coRateTier.className =
-              "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800";
+            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800";
           } else {
             coRateTier.textContent = "Standard Rate";
-            coRateTier.className =
-              "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700";
+            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700";
           }
         }
 
@@ -1206,8 +941,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const peakBase = Math.round(activeSchedule.baseRate * 1.5);
           const peakHourly = Math.round(activeSchedule.hourlyRate * 1.5);
           if (data.status === "towed") {
-            coFeeNote.textContent =
-              "Stay exceeded 24 hours. Vehicle impounded.";
+            coFeeNote.textContent = "Stay exceeded 24 hours. Vehicle impounded.";
           } else if (data.isOvernight) {
             coFeeNote.textContent = `Includes ₱${activeSchedule.overnightSurcharge} overnight surcharge (${data.rateType})`;
           } else if (data.isPeak) {
@@ -1298,14 +1032,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (paymentError) paymentError.classList.add("hidden");
 
       const minAllowed = Math.min(50, currentFee > 0 ? currentFee : 50);
-      if (
-        isNaN(amountReceived) ||
-        amountReceived < minAllowed ||
-        amountReceived > 1000
-      ) {
-        showPaymentError(
-          `Please input any amount from ₱${minAllowed} to ₱1,000.`,
-        );
+      if (isNaN(amountReceived) || amountReceived < minAllowed || amountReceived > 1000) {
+        showPaymentError(`Please input any amount from ₱${minAllowed} to ₱1,000.`);
         return;
       }
 
@@ -1364,15 +1092,17 @@ document.addEventListener("DOMContentLoaded", () => {
               .sort(([a], [b]) => parseInt(b) - parseInt(a));
 
             const rows = entries
-              .map(([denom, count]) => {
-                const denomNum = parseInt(denom, 10);
-                const unitLabel = denomNum >= 20 ? "bill" : "coin";
-                return `
+              .map(
+                ([denom, count]) => {
+                  const denomNum = parseInt(denom, 10);
+                  const unitLabel = denomNum >= 20 ? 'bill' : 'coin';
+                  return `
                     <div class="flex justify-between py-1 border-b border-dashed border-emerald-200/50 last:border-0">
                       <span class="font-semibold text-[#1d1d1f]">₱${denom} ${unitLabel}</span>
                       <span class="text-[#6e6e73] font-medium">× ${count}</span>
                     </div>`;
-              })
+                }
+              )
               .join("");
 
             if (coBreakdown) {

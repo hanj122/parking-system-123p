@@ -4,7 +4,7 @@ A clean, modern dashboard web application for a 3-story parking system.
 
 ## Stack
 
-- **Backend**: Node.js, Express, PostgreSQL (Supabase)
+- **Backend**: Node.js, Express, SQLite
 - **Frontend**: Vanilla HTML, CSS, JavaScript
 
 ## Setup & Running
@@ -16,7 +16,7 @@ A clean, modern dashboard web application for a 3-story parking system.
    ```
 3. Start the server:
    ```bash
-   npm start
+   node backend/server.js
    ```
 
 The demand forecast form stores only the event nature, date, time, and category.
