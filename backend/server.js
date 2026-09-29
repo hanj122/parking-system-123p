@@ -13,7 +13,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
 app.use("/assets", express.static(path.join(__dirname, "../public/assets")));
-app.use("/dashboard/assets", express.static(path.join(__dirname, "../public/assets")));
+app.use(
+  "/dashboard/assets",
+  express.static(path.join(__dirname, "../public/assets")),
+);
 
 // ── Page routes (Clean friendly aliases) ───────────────────────────
 app.get("/", (req, res) => {
@@ -76,7 +79,9 @@ const FEE_SCHEDULES = {
 };
 
 function getFeeSchedule(vehicleType) {
-  const normalized = String(vehicleType || "car").toLowerCase().trim();
+  const normalized = String(vehicleType || "car")
+    .toLowerCase()
+    .trim();
   return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
 }
 
@@ -147,8 +152,12 @@ function calculateFeeAndStatus(entryTime, exitTime, vehicleType = "car") {
   // 2. Dynamic rate determination (Peak 1.5x multiplier applied to active vehicle schedule)
   const isPeak = checkIsPeakSession(entryDate, exitDate);
   const baseHours = schedule.baseHours;
-  const baseRate = isPeak ? Math.round(schedule.baseRate * 1.5) : schedule.baseRate;
-  const hourlyRate = isPeak ? Math.round(schedule.hourlyRate * 1.5) : schedule.hourlyRate;
+  const baseRate = isPeak
+    ? Math.round(schedule.baseRate * 1.5)
+    : schedule.baseRate;
+  const hourlyRate = isPeak
+    ? Math.round(schedule.hourlyRate * 1.5)
+    : schedule.hourlyRate;
 
   // 3. Overnight surcharge check (+₱300 after 10:00 PM)
   let crosses10PM = false;
@@ -165,7 +174,10 @@ function calculateFeeAndStatus(entryTime, exitTime, vehicleType = "car") {
 
   let fee = 0;
   if (crosses10PM) {
-    const hoursBefore10PM = Math.max(0, Math.ceil((tenPM - entryDate) / (1000 * 60 * 60)));
+    const hoursBefore10PM = Math.max(
+      0,
+      Math.ceil((tenPM - entryDate) / (1000 * 60 * 60)),
+    );
     let pre10Fee = 0;
     if (hoursBefore10PM > 0) {
       pre10Fee = baseRate;
@@ -233,7 +245,16 @@ function logReport(type, message, options = {}) {
   db.run(
     `INSERT INTO reports (type, severity, message, floor, slot_id, ticket_id, source, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [type, severity, message, derivedFloor, slotId, ticketId, source, createdAt],
+    [
+      type,
+      severity,
+      message,
+      derivedFloor,
+      slotId,
+      ticketId,
+      source,
+      createdAt,
+    ],
     (err) => {
       if (err) console.error("Failed to log report:", err.message);
     },
@@ -381,7 +402,7 @@ function syncSlotsTableStatus(callback) {
          ) THEN 'occupied'
          ELSE 'available'
        END
-       WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)`
+       WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)`,
     );
 
     // Reserved motorcycle slots (100-119 on Floor 1): occupied when active motorcycle count >= 6
@@ -397,7 +418,7 @@ function syncSlotsTableStatus(callback) {
          ELSE 'available'
        END
        WHERE floor = 1 AND id BETWEEN 100 AND 119`,
-      callback
+      callback,
     );
   });
 }
@@ -434,19 +455,35 @@ app.get("/api/status", (req, res) => {
 
     const floor1Slots = evaluatedSlots.filter((s) => s.floor === 1);
     const reservedMcSlots = floor1Slots.filter((s) => s.isReservedMotorcycle);
-    const floor1StandardSlots = floor1Slots.filter((s) => !s.isReservedMotorcycle);
+    const floor1StandardSlots = floor1Slots.filter(
+      (s) => !s.isReservedMotorcycle,
+    );
 
     const carSlotsTotal = floor1StandardSlots.length;
-    const carSlotsTaken = floor1StandardSlots.reduce((acc, s) => acc + s.taken, 0);
-    const carSlotsAvailable = floor1StandardSlots.reduce((acc, s) => acc + s.remaining, 0);
+    const carSlotsTaken = floor1StandardSlots.reduce(
+      (acc, s) => acc + s.taken,
+      0,
+    );
+    const carSlotsAvailable = floor1StandardSlots.reduce(
+      (acc, s) => acc + s.remaining,
+      0,
+    );
 
     const mcReservedSlotsCount = reservedMcSlots.length;
-    const mcConflictSlotsCount = reservedMcSlots.filter((s) => s.conflictWithCar).length;
+    const mcConflictSlotsCount = reservedMcSlots.filter(
+      (s) => s.conflictWithCar,
+    ).length;
     const mcActiveSlotsCount = mcReservedSlotsCount - mcConflictSlotsCount;
     const mcTotalCapacity = mcReservedSlotsCount * MOTORCYCLE_SLOT_CAPACITY;
     const mcEffectiveCapacity = mcActiveSlotsCount * MOTORCYCLE_SLOT_CAPACITY;
-    const mcTaken = reservedMcSlots.reduce((acc, s) => acc + s.motorcycleCount, 0);
-    const mcRemaining = reservedMcSlots.reduce((acc, s) => acc + s.remaining, 0);
+    const mcTaken = reservedMcSlots.reduce(
+      (acc, s) => acc + s.motorcycleCount,
+      0,
+    );
+    const mcRemaining = reservedMcSlots.reduce(
+      (acc, s) => acc + s.remaining,
+      0,
+    );
 
     const floor1Available = carSlotsAvailable + mcRemaining;
     const floor1Taken = carSlotsTaken + mcTaken + mcConflictSlotsCount;
@@ -454,11 +491,17 @@ app.get("/api/status", (req, res) => {
 
     const floor2Slots = evaluatedSlots.filter((s) => s.floor === 2);
     const floor2Taken = floor2Slots.reduce((acc, s) => acc + s.taken, 0);
-    const floor2Available = floor2Slots.reduce((acc, s) => acc + s.remaining, 0);
+    const floor2Available = floor2Slots.reduce(
+      (acc, s) => acc + s.remaining,
+      0,
+    );
 
     const floor3Slots = evaluatedSlots.filter((s) => s.floor === 3);
     const floor3Taken = floor3Slots.reduce((acc, s) => acc + s.taken, 0);
-    const floor3Available = floor3Slots.reduce((acc, s) => acc + s.remaining, 0);
+    const floor3Available = floor3Slots.reduce(
+      (acc, s) => acc + s.remaining,
+      0,
+    );
 
     const capacity = {
       1: {
@@ -493,13 +536,16 @@ app.get("/api/status", (req, res) => {
     db.all(
       "SELECT t.id, t.slot_id, t.entry_time, COALESCE(t.vehicle_type, 'car') AS vehicle_type, t.brand, t.color, t.year, t.plate_number, t.mv_file_number, s.floor, t.map_latitude, t.map_longitude FROM tickets t JOIN slots s ON t.slot_id = s.id WHERE t.status = 'active' ORDER BY t.entry_time DESC",
       (ticketErr, tickets) => {
-        if (ticketErr) return res.status(500).json({ error: ticketErr.message });
+        if (ticketErr)
+          return res.status(500).json({ error: ticketErr.message });
 
         const enrichedTickets = (tickets || []).map((t) => {
           const s = slotMap.get(Number(t.slot_id));
           return {
             ...t,
-            is_reserved_motorcycle_slot: s ? s.isReservedMotorcycle : isMotorcycleReservedSlot(t.slot_id, t.floor),
+            is_reserved_motorcycle_slot: s
+              ? s.isReservedMotorcycle
+              : isMotorcycleReservedSlot(t.slot_id, t.floor),
             slot_capacity: s ? s.capacity : 1,
             slot_remaining: s ? s.remaining : 0,
             slot_motorcycle_count: s ? s.motorcycleCount : 0,
@@ -513,7 +559,7 @@ app.get("/api/status", (req, res) => {
           reservedMotorcycleSlots: reservedMcSlots,
           tickets: enrichedTickets,
         });
-      }
+      },
     );
   });
 });
@@ -556,9 +602,13 @@ app.post("/api/entry", (req, res) => {
     }
 
     if (!chosenSlot) {
-      logReport("capacity_issue", `Parking lot reached full capacity for ${schedule.label}`, {
-        severity: "warning",
-      });
+      logReport(
+        "capacity_issue",
+        `Parking lot reached full capacity for ${schedule.label}`,
+        {
+          severity: "warning",
+        },
+      );
 
       return res.status(400).json({
         error:
@@ -624,9 +674,21 @@ app.post("/api/entry", (req, res) => {
       ]);
       db.run(
         "INSERT INTO tickets (slot_id, entry_time, vehicle_type, map_latitude, map_longitude, brand, color, year, plate_number, mv_file_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [chosenSlot.id, entryTime, vehicleType, mapLatitude, mapLongitude, brand, color, year, plateNumber, mvFileNumber],
+        [
+          chosenSlot.id,
+          entryTime,
+          vehicleType,
+          mapLatitude,
+          mapLongitude,
+          brand,
+          color,
+          year,
+          plateNumber,
+          mvFileNumber,
+        ],
         function (insertErr) {
-          if (insertErr) return res.status(500).json({ error: insertErr.message });
+          if (insertErr)
+            return res.status(500).json({ error: insertErr.message });
 
           logReport("vehicle_entered", `${schedule.label} entered lot`, {
             severity: "info",
@@ -719,7 +781,8 @@ app.post("/api/exit", (req, res) => {
             "UPDATE tickets SET exit_time = ?, status = 'towed', fee = 0 WHERE id = ?",
             [exitTime, ticketId],
             (updateErr) => {
-              if (updateErr) return res.status(500).json({ error: updateErr.message });
+              if (updateErr)
+                return res.status(500).json({ error: updateErr.message });
               syncSlotsTableStatus(() => {
                 logReport(
                   "vehicle_towed",
@@ -743,11 +806,15 @@ app.post("/api/exit", (req, res) => {
       }
 
       if (!isValidPaymentAmount(amountReceived, fee)) {
-        logReport("payment_issue", `Invalid cash amount rejected: ₱${amountReceived}`, {
-          severity: "warning",
-          slotId: ticket.slot_id,
-          ticketId: ticketId,
-        });
+        logReport(
+          "payment_issue",
+          `Invalid cash amount rejected: ₱${amountReceived}`,
+          {
+            severity: "warning",
+            slotId: ticket.slot_id,
+            ticketId: ticketId,
+          },
+        );
 
         return res.status(400).json({
           error:
@@ -786,7 +853,8 @@ app.post("/api/exit", (req, res) => {
             ticketId,
           ],
           (updateErr) => {
-            if (updateErr) return res.status(500).json({ error: updateErr.message });
+            if (updateErr)
+              return res.status(500).json({ error: updateErr.message });
             syncSlotsTableStatus(() => {
               logReport("payment_completed", "Payment completed successfully", {
                 severity: "info",
@@ -859,7 +927,9 @@ app.get("/api/kpis", (req, res) => {
 
           db.get(completedSessionsQuery, (err, turnoverRow) => {
             if (err) return res.status(500).json({ error: err.message });
-            const completedSessions = Number(turnoverRow?.completed_sessions || 0);
+            const completedSessions = Number(
+              turnoverRow?.completed_sessions || 0,
+            );
 
             // Determine target today & yesterday dates
             const dateQuery = reqDate
@@ -898,82 +968,116 @@ app.get("/api/kpis", (req, res) => {
                       WHERE (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))
                     `;
 
-                    db.get(dailyAggregateQuery, [todayStr, todayStr], (err, todayStats) => {
-                      if (err) return res.status(500).json({ error: err.message });
+                    db.get(
+                      dailyAggregateQuery,
+                      [todayStr, todayStr],
+                      (err, todayStats) => {
+                        if (err)
+                          return res.status(500).json({ error: err.message });
 
-                      db.get(dailyAggregateQuery, [effectiveYesterday, effectiveYesterday], (err, yestStats) => {
-                        if (err) return res.status(500).json({ error: err.message });
+                        db.get(
+                          dailyAggregateQuery,
+                          [effectiveYesterday, effectiveYesterday],
+                          (err, yestStats) => {
+                            if (err)
+                              return res
+                                .status(500)
+                                .json({ error: err.message });
 
-                        const todayRev = Number(todayStats?.revenue || 0);
-                        const todayCompleted = Number(todayStats?.completed_sessions || 0);
+                            const todayRev = Number(todayStats?.revenue || 0);
+                            const todayCompleted = Number(
+                              todayStats?.completed_sessions || 0,
+                            );
 
-                        const yestRev = Number(yestStats?.revenue || 0);
-                        const yestCompleted = Number(yestStats?.completed_sessions || 0);
+                            const yestRev = Number(yestStats?.revenue || 0);
+                            const yestCompleted = Number(
+                              yestStats?.completed_sessions || 0,
+                            );
 
-                        // Revenue per available space for today:
-                        const revenuePerAvailableSpace =
-                          totalSpaces > 0 ? todayRev / totalSpaces : 0;
-                        const yestRevenuePerSpace =
-                          totalSpaces > 0 ? yestRev / totalSpaces : 0;
+                            // Revenue per available space for today:
+                            const revenuePerAvailableSpace =
+                              totalSpaces > 0 ? todayRev / totalSpaces : 0;
+                            const yestRevenuePerSpace =
+                              totalSpaces > 0 ? yestRev / totalSpaces : 0;
 
-                        // Revenue delta vs yesterday
-                        let revenuePerAvailableSpaceDelta = "+0.0%";
-                        let revenueDeltaPositive = true;
-                        if (yestRevenuePerSpace > 0) {
-                          const pct = ((revenuePerAvailableSpace - yestRevenuePerSpace) / yestRevenuePerSpace) * 100;
-                          revenuePerAvailableSpaceDelta = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
-                          revenueDeltaPositive = pct >= 0;
-                        } else if (revenuePerAvailableSpace > 0) {
-                          revenuePerAvailableSpaceDelta = "+100.0%";
-                          revenueDeltaPositive = true;
-                        }
+                            // Revenue delta vs yesterday
+                            let revenuePerAvailableSpaceDelta = "+0.0%";
+                            let revenueDeltaPositive = true;
+                            if (yestRevenuePerSpace > 0) {
+                              const pct =
+                                ((revenuePerAvailableSpace -
+                                  yestRevenuePerSpace) /
+                                  yestRevenuePerSpace) *
+                                100;
+                              revenuePerAvailableSpaceDelta = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+                              revenueDeltaPositive = pct >= 0;
+                            } else if (revenuePerAvailableSpace > 0) {
+                              revenuePerAvailableSpaceDelta = "+100.0%";
+                              revenueDeltaPositive = true;
+                            }
 
-                        // Current Occupancy: active / total * 100, rounded
-                        const currentOccupancy =
-                          totalSpaces > 0 ? Math.round((activeSpaces / totalSpaces) * 100) : 0;
+                            // Current Occupancy: active / total * 100, rounded
+                            const currentOccupancy =
+                              totalSpaces > 0
+                                ? Math.round((activeSpaces / totalSpaces) * 100)
+                                : 0;
 
-                        // Yesterday occupancy:
-                        // Estimate yesterday's occupancy from concurrent/sessions
-                        const yestSessions = Number(yestStats?.total_sessions || 0);
-                        const yestEstOccupancy = totalSpaces > 0 ? Math.round((yestSessions * 0.75 / totalSpaces) * 100) : 0;
-                        const occDeltaVal = currentOccupancy - yestEstOccupancy;
-                        const occupancyDelta = `${occDeltaVal >= 0 ? "+" : ""}${occDeltaVal.toFixed(1)}%`;
+                            // Yesterday occupancy:
+                            // Estimate yesterday's occupancy from concurrent/sessions
+                            const yestSessions = Number(
+                              yestStats?.total_sessions || 0,
+                            );
+                            const yestEstOccupancy =
+                              totalSpaces > 0
+                                ? Math.round(
+                                    ((yestSessions * 0.75) / totalSpaces) * 100,
+                                  )
+                                : 0;
+                            const occDeltaVal =
+                              currentOccupancy - yestEstOccupancy;
+                            const occupancyDelta = `${occDeltaVal >= 0 ? "+" : ""}${occDeltaVal.toFixed(1)}%`;
 
-                        // Turnover Rate: completed / totalSpaces
-                        const turnoverRate =
-                          totalSpaces > 0 ? todayCompleted / totalSpaces : 0;
-                        const yestTurnoverRate =
-                          totalSpaces > 0 ? yestCompleted / totalSpaces : 0;
-                        const toDiff = turnoverRate - yestTurnoverRate;
-                        const turnoverRateDelta = `${toDiff >= 0 ? "+" : ""}${toDiff.toFixed(2)}x`;
-                        const turnoverDeltaPositive = toDiff >= 0;
+                            // Turnover Rate: completed / totalSpaces
+                            const turnoverRate =
+                              totalSpaces > 0
+                                ? todayCompleted / totalSpaces
+                                : 0;
+                            const yestTurnoverRate =
+                              totalSpaces > 0 ? yestCompleted / totalSpaces : 0;
+                            const toDiff = turnoverRate - yestTurnoverRate;
+                            const turnoverRateDelta = `${toDiff >= 0 ? "+" : ""}${toDiff.toFixed(2)}x`;
+                            const turnoverDeltaPositive = toDiff >= 0;
 
-                        res.json({
-                          // Existing backwards-compatible fields
-                          totalSpaces,
-                          totalRevenue,
-                          completedSessions,
-                          revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
-                          turnoverRate: Number(turnoverRate.toFixed(2)),
+                            res.json({
+                              // Existing backwards-compatible fields
+                              totalSpaces,
+                              totalRevenue,
+                              completedSessions,
+                              revenuePerAvailableSpace: Number(
+                                revenuePerAvailableSpace.toFixed(2),
+                              ),
+                              turnoverRate: Number(turnoverRate.toFixed(2)),
 
-                          // Extended fields
-                          activeSpaces,
-                          currentOccupancy,
-                          activeAlerts,
+                              // Extended fields
+                              activeSpaces,
+                              currentOccupancy,
+                              activeAlerts,
 
-                          todayRevenue: Number(todayRev.toFixed(2)),
-                          todayCompletedSessions: todayCompleted,
-                          yesterdayDate: effectiveYesterday,
-                          todayDate: todayStr,
+                              todayRevenue: Number(todayRev.toFixed(2)),
+                              todayCompletedSessions: todayCompleted,
+                              yesterdayDate: effectiveYesterday,
+                              todayDate: todayStr,
 
-                          revenuePerAvailableSpaceDelta,
-                          revenueDeltaPositive,
-                          occupancyDelta,
-                          turnoverRateDelta,
-                          turnoverDeltaPositive,
-                        });
-                      });
-                    });
+                              revenuePerAvailableSpaceDelta,
+                              revenueDeltaPositive,
+                              occupancyDelta,
+                              turnoverRateDelta,
+                              turnoverDeltaPositive,
+                            });
+                          },
+                        );
+                      },
+                    );
                   };
 
                   if (yCountRow && yCountRow.c > 0) {
@@ -987,7 +1091,7 @@ app.get("/api/kpis", (req, res) => {
                       }
                     });
                   }
-                }
+                },
               );
             });
           });
@@ -1832,7 +1936,8 @@ app.get("/api/health", (req, res) => {
       status: "error",
       databaseConnected: false,
       message: "DATABASE_URL environment variable is not configured.",
-      renderHint: "Add DATABASE_URL in Render Dashboard -> Web Service -> Environment.",
+      renderHint:
+        "Add DATABASE_URL in Render Dashboard -> Web Service -> Environment.",
     });
   }
 
@@ -1861,7 +1966,7 @@ app.get("/api/health", (req, res) => {
           reports: Number(counts.reports_count || 0),
         },
       });
-    }
+    },
   );
 });
 
@@ -1870,7 +1975,8 @@ app.all("/api/seed", async (req, res) => {
   if (!process.env.DATABASE_URL) {
     return res.status(503).json({
       success: false,
-      error: "DATABASE_URL is not configured. Please set DATABASE_URL in your Render Environment variables.",
+      error:
+        "DATABASE_URL is not configured. Please set DATABASE_URL in your Render Environment variables.",
     });
   }
 
@@ -1879,7 +1985,8 @@ app.all("/api/seed", async (req, res) => {
     const stats = await db.reseed({ clearExisting: true });
     res.json({
       success: true,
-      message: "Database successfully populated with 300 parking spaces and 30-day synthetic telemetry.",
+      message:
+        "Database successfully populated with 300 parking spaces and 30-day synthetic telemetry.",
       stats,
     });
   } catch (err) {
@@ -1892,4 +1999,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-

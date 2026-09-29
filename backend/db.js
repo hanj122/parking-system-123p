@@ -95,12 +95,20 @@ let initPromise = null;
 
 async function initDatabase() {
   if (!process.env.DATABASE_URL) {
-    console.warn("\n========================================================================");
+    console.warn(
+      "\n========================================================================",
+    );
     console.warn("⚠️  DATABASE_URL environment variable is NOT SET!");
     console.warn("   If running on Render:");
-    console.warn("   1. Open Render Dashboard -> Your Web Service -> Environment");
-    console.warn("   2. Add Key: DATABASE_URL, Value: your Supabase / PostgreSQL URI");
-    console.warn("========================================================================\n");
+    console.warn(
+      "   1. Open Render Dashboard -> Your Web Service -> Environment",
+    );
+    console.warn(
+      "   2. Add Key: DATABASE_URL, Value: your Supabase / PostgreSQL URI",
+    );
+    console.warn(
+      "========================================================================\n",
+    );
     return;
   }
 
@@ -117,14 +125,18 @@ async function initDatabase() {
     if (fs.existsSync(schemaPath)) {
       const schemaSql = fs.readFileSync(schemaPath, "utf8");
       await client.query(schemaSql);
-      console.log("✅ Database schema verified (slots, tickets, reports, forecasts).");
+      console.log(
+        "✅ Database schema verified (slots, tickets, reports, forecasts).",
+      );
     }
 
     // 3. Ensure slots table has 300 spaces
     const slotsRes = await client.query("SELECT COUNT(*) AS count FROM slots;");
     const slotCount = parseInt(slotsRes.rows[0].count, 10);
     if (slotCount === 0) {
-      console.log("🌱 Slots table is empty. Initializing 300 parking spaces...");
+      console.log(
+        "🌱 Slots table is empty. Initializing 300 parking spaces...",
+      );
       for (let i = 100; i <= 399; i++) {
         const floor = Math.floor(i / 100);
         const isMc = floor === 1 && i >= 100 && i <= 119;
@@ -135,33 +147,47 @@ async function initDatabase() {
              floor = EXCLUDED.floor,
              reserved_for = EXCLUDED.reserved_for,
              capacity = EXCLUDED.capacity;`,
-          [i, floor, isMc ? "motorcycle" : null, isMc ? 6 : 1]
+          [i, floor, isMc ? "motorcycle" : null, isMc ? 6 : 1],
         );
       }
-      console.log("✅ 300 slots initialized (Slots 100-119 reserved for motorcycles, capacity 6).");
+      console.log(
+        "✅ 300 slots initialized (Slots 100-119 reserved for motorcycles, capacity 6).",
+      );
     }
 
     // 4. Ensure tickets table has data
-    const ticketsRes = await client.query("SELECT COUNT(*) AS count FROM tickets;");
+    const ticketsRes = await client.query(
+      "SELECT COUNT(*) AS count FROM tickets;",
+    );
     const ticketCount = parseInt(ticketsRes.rows[0].count, 10);
     if (ticketCount === 0) {
-      console.log("🌱 Tickets table is empty. Auto-seeding synthetic operational data...");
+      console.log(
+        "🌱 Tickets table is empty. Auto-seeding synthetic operational data...",
+      );
       try {
         const { seedDataset } = require("../data/seed-supabase");
         await seedDataset(client, { clearExisting: false });
-        console.log("✅ Database auto-seeded with 30-day realistic telemetry data!");
+        console.log(
+          "✅ Database auto-seeded with 30-day realistic telemetry data!",
+        );
       } catch (seedErr) {
         console.error("⚠️ Auto-seeding notice:", seedErr.message);
       }
     } else {
-      console.log(`ℹ️ Operational data ready: ${ticketCount} tickets, ${slotCount || 300} slots.`);
+      console.log(
+        `ℹ️ Operational data ready: ${ticketCount} tickets, ${slotCount || 300} slots.`,
+      );
     }
 
     // 5. Ensure lot_location default row is seeded
     try {
-      const lotRes = await client.query("SELECT COUNT(*) AS count FROM lot_location;");
+      const lotRes = await client.query(
+        "SELECT COUNT(*) AS count FROM lot_location;",
+      );
       if (lotRes.rows[0].count === "0" || lotRes.rows[0].count === 0) {
-        await client.query("INSERT INTO lot_location (id, latitude, longitude, radius_km) VALUES (1, 14.5995, 120.9842, 3.0) ON CONFLICT (id) DO NOTHING;");
+        await client.query(
+          "INSERT INTO lot_location (id, latitude, longitude, radius_km) VALUES (1, 14.5995, 120.9842, 3.0) ON CONFLICT (id) DO NOTHING;",
+        );
       }
     } catch (lotErr) {
       // ignore
@@ -181,7 +207,10 @@ initPromise = initDatabase();
 function formatSql(sql) {
   let transformed = sql;
   if (/^\s*insert\s+or\s+ignore\s+into/i.test(transformed)) {
-    transformed = transformed.replace(/^\s*insert\s+or\s+ignore\s+into/i, "INSERT INTO");
+    transformed = transformed.replace(
+      /^\s*insert\s+or\s+ignore\s+into/i,
+      "INSERT INTO",
+    );
     if (!/on\s+conflict/i.test(transformed)) {
       transformed += " ON CONFLICT DO NOTHING";
     }
@@ -206,7 +235,7 @@ const db = {
     }
     if (!process.env.DATABASE_URL) {
       const err = new Error(
-        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment."
+        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment.",
       );
       return callback ? callback(err) : null;
     }
@@ -230,7 +259,7 @@ const db = {
     }
     if (!process.env.DATABASE_URL) {
       const err = new Error(
-        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment."
+        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment.",
       );
       return callback ? callback(err) : null;
     }
@@ -254,7 +283,7 @@ const db = {
     }
     if (!process.env.DATABASE_URL) {
       const err = new Error(
-        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment."
+        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment.",
       );
       return callback ? callback(err) : null;
     }
