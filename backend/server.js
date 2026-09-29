@@ -38,7 +38,6 @@ app.get("/reports", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
 
-<<<<<<< HEAD
 // Great-circle / Haversine distance in kilometers
 function haversineDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in km
@@ -54,12 +53,6 @@ function haversineDistanceKm(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Helper to check if a number can be formed by 20, 50, 100, 500, 1000
-function isValidPaymentAmount(amount) {
-  if (amount <= 0 || !Number.isInteger(amount)) return false;
-  if (amount === 10 || amount === 30) return false;
-  return amount % 10 === 0;
-=======
 // Fee schedule definitions by vehicle type
 const FEE_SCHEDULES = {
   car: {
@@ -85,7 +78,6 @@ const FEE_SCHEDULES = {
 function getFeeSchedule(vehicleType) {
   const normalized = String(vehicleType || "car").toLowerCase().trim();
   return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 }
 
 // Helper to validate payment amount: accepts any amount from minAllowed (50, or exact motorcycle fee) up to 1000
@@ -248,7 +240,6 @@ function logReport(type, message, options = {}) {
   );
 }
 
-<<<<<<< HEAD
 // GET /api/slots - Get all slots with floor and current status
 app.get("/api/slots", (req, res) => {
   db.all(
@@ -306,16 +297,6 @@ app.post("/api/slots/:id/reopen", (req, res) => {
   );
 });
 
-// GET /api/status - Get floor capacities and active tickets
-app.get("/api/status", (req, res) => {
-  db.serialize(() => {
-    // Keep slots table status strictly synchronized with active tickets without overwriting closed slots
-    db.run(
-      "UPDATE slots SET status = 'available' WHERE status != 'closed' AND id NOT IN (SELECT slot_id FROM tickets WHERE status = 'active')",
-    );
-    db.run(
-      "UPDATE slots SET status = 'occupied' WHERE status != 'closed' AND id IN (SELECT slot_id FROM tickets WHERE status = 'active')",
-=======
 const MOTORCYCLE_RESERVED_FLOOR = 1;
 const MOTORCYCLE_RESERVED_START = 100;
 const MOTORCYCLE_RESERVED_END = 119;
@@ -393,6 +374,7 @@ function syncSlotsTableStatus(callback) {
     db.run(
       `UPDATE slots
        SET status = CASE
+         WHEN status = 'closed' THEN 'closed'
          WHEN EXISTS (
            SELECT 1 FROM tickets t
            WHERE t.slot_id = slots.id AND t.status = 'active'
@@ -400,7 +382,6 @@ function syncSlotsTableStatus(callback) {
          ELSE 'available'
        END
        WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)`
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
     );
 
     // Reserved motorcycle slots (100-119 on Floor 1): occupied when active motorcycle count >= 6
@@ -676,73 +657,7 @@ app.post("/api/entry", (req, res) => {
   });
 });
 
-<<<<<<< HEAD
-// POST /api/entry - Assign slot and create ticket
-app.post("/api/entry", (req, res) => {
-  // Fill floor 1 first, then 2, then 3; skips closed and occupied slots
-  db.get(
-    "SELECT id, floor FROM slots WHERE status = 'available' ORDER BY floor ASC, id ASC LIMIT 1",
-    (err, slot) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!slot) {
-        logReport("capacity_issue", "Parking lot reached full capacity", {
-          severity: "warning",
-        });
-
-        return res.status(400).json({ error: "Parking is full" });
-      }
-
-      const entryTime = req.body.entryTime || new Date().toISOString();
-      const mapLatitude = req.body.mapLatitude ?? null;
-      const mapLongitude = req.body.mapLongitude ?? null;
-
-      if (
-        (mapLatitude !== null &&
-          (!Number.isFinite(Number(mapLatitude)) ||
-            Number(mapLatitude) < 14.3 ||
-            Number(mapLatitude) > 14.9)) ||
-        (mapLongitude !== null &&
-          (!Number.isFinite(Number(mapLongitude)) ||
-            Number(mapLongitude) < 120.8 ||
-            Number(mapLongitude) > 121.3))
-      ) {
-        return res
-          .status(400)
-          .json({ error: "Ticket map pin must be within Metro Manila." });
-      }
-
-      db.serialize(() => {
-        db.run("UPDATE slots SET status = 'occupied' WHERE id = ?", [slot.id]);
-        db.run(
-          "INSERT INTO tickets (slot_id, entry_time, map_latitude, map_longitude) VALUES (?, ?, ?, ?)",
-          [slot.id, entryTime, mapLatitude, mapLongitude],
-          function (err) {
-            if (err) return res.status(500).json({ error: err.message });
-
-            logReport("vehicle_entered", "Vehicle entered lot", {
-              severity: "info",
-              floor: slot.floor,
-              slotId: slot.id,
-              ticketId: this.lastID,
-            });
-
-            res.json({
-              ticketId: this.lastID,
-              slotId: slot.id,
-              floor: slot.floor,
-              entryTime,
-            });
-          },
-        );
-      });
-    },
-  );
-});
-
-// GET /api/ticket/:id/fee - Calculate fee for display
-=======
 // GET /api/ticket/:id/fee - Calculate fee for display using ticket's vehicle_type
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 app.get("/api/ticket/:id/fee", (req, res) => {
   const exitTime = req.query.exitTime || new Date().toISOString();
 
@@ -938,24 +853,6 @@ app.get("/api/kpis", (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         const activeAlerts = Number(alertsRow?.active_alerts || 0);
 
-<<<<<<< HEAD
-        const totalSpaces = Number(spacesRow.total_spaces || 0);
-        const totalRevenue = Number(revenueRow.total_revenue || 0);
-        const completedSessions = Number(turnoverRow.completed_sessions || 0);
-
-        const revenuePerAvailableSpace =
-          totalSpaces > 0 ? totalRevenue / totalSpaces : 0;
-
-        const turnoverRate =
-          totalSpaces > 0 ? completedSessions / totalSpaces : 0;
-
-        res.json({
-          totalSpaces,
-          totalRevenue,
-          completedSessions,
-          revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
-          turnoverRate: Number(turnoverRate.toFixed(2)),
-=======
         db.get(totalRevenueQuery, (err, revenueRow) => {
           if (err) return res.status(500).json({ error: err.message });
           const totalRevenue = Number(revenueRow?.total_revenue || 0);
@@ -1094,7 +991,6 @@ app.get("/api/kpis", (req, res) => {
               );
             });
           });
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
         });
       });
     });
@@ -1242,22 +1138,10 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
       res.json({
         totalSpaces,
         totalVehicles,
-<<<<<<< HEAD
         totalRevenue: Number(totalRevenue.toFixed(2)),
         revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
         turnoverRate: Number(turnoverRate.toFixed(2)),
-=======
-        totalRevenue: Number(
-          totalRevenue.toFixed(2)
-        ),
-        revenuePerAvailableSpace: Number(
-          revenuePerAvailableSpace.toFixed(2)
-        ),
-        turnoverRate: Number(
-          turnoverRate.toFixed(2)
-        ),
         summary,
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
         spaces,
         vehicles,
       });
@@ -1265,7 +1149,6 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
   });
 });
 
-<<<<<<< HEAD
 // GET /api/reports - Paginated incident reports with multi-slot closure info
 app.get("/api/reports", (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -1279,7 +1162,7 @@ app.get("/api/reports", (req, res) => {
     const totalPages = Math.ceil(total / limit);
 
     db.all(
-      `SELECT r.*, GROUP_CONCAT(rs.slot_id) AS closed_slots_raw
+      `SELECT r.*, STRING_AGG(rs.slot_id::text, ',') AS closed_slots_raw
        FROM reports r
        LEFT JOIN report_slots rs ON r.id = rs.report_id
        GROUP BY r.id
@@ -1330,7 +1213,8 @@ app.get("/api/reports", (req, res) => {
       },
     );
   });
-=======
+});
+
 // GET /api/analytics/peak-hours
 app.get("/api/analytics/peak-hours", (req, res) => {
   const query = `
@@ -1464,27 +1348,6 @@ app.get("/api/recent-events", (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows || []);
   });
-});
-
-app.get("/api/reports", (req, res) => {
-  db.all(
-    `SELECT id, type, severity, message,
-            COALESCE(floor, CAST(slot_id / 100 AS INTEGER)) AS floor,
-            slot_id, ticket_id, source,
-            CASE
-              WHEN created_at LIKE '% %' AND created_at NOT LIKE '%Z'
-              THEN REPLACE(created_at, ' ', 'T') || 'Z'
-              ELSE created_at
-            END AS created_at
-     FROM reports
-     ORDER BY created_at DESC, id DESC
-     LIMIT 50`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    },
-  );
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 });
 
 // DELETE /api/reports/:id - Remove a report ticket
@@ -1954,14 +1817,13 @@ app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
   );
 });
 
-<<<<<<< HEAD
 // Initial automated forecast sync on startup
 setTimeout(() => {
   syncAllForecasts(db).catch((e) =>
     console.error("Startup forecast sync notice:", e.message),
   );
 }, 1500);
-=======
+
 // Diagnostic and health endpoint for production environments like Render
 app.get("/api/health", (req, res) => {
   const hasDbUrl = Boolean(process.env.DATABASE_URL);
@@ -2025,7 +1887,6 @@ app.all("/api/seed", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

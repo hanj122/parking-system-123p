@@ -67,7 +67,6 @@ CREATE TABLE IF NOT EXISTS demand_forecasts (
     latitude REAL,
     longitude REAL,
     location TEXT,
-<<<<<<< HEAD
     source TEXT NOT NULL DEFAULT 'manual',
     external_id TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -80,9 +79,6 @@ CREATE TABLE IF NOT EXISTS lot_location (
     radius_km REAL NOT NULL DEFAULT 3.0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-=======
-    created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
-);
 
 -- Performance Indexes for Analytics & Dashboard Queries
 CREATE INDEX IF NOT EXISTS idx_tickets_slot_id ON tickets(slot_id);
@@ -91,4 +87,3 @@ CREATE INDEX IF NOT EXISTS idx_tickets_entry_time ON tickets(entry_time);
 CREATE INDEX IF NOT EXISTS idx_tickets_exit_time ON tickets(exit_time);
 CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at);
 CREATE INDEX IF NOT EXISTS idx_slots_floor ON slots(floor);
->>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
