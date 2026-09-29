@@ -1,3 +1,7 @@
+try {
+  require("dotenv").config();
+} catch (e) {}
+
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
@@ -8,6 +12,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "../public")));
+app.use("/assets", express.static(path.join(__dirname, "../public/assets")));
+app.use("/dashboard/assets", express.static(path.join(__dirname, "../public/assets")));
 
 // ── Page routes (Clean friendly aliases) ───────────────────────────
 app.get("/", (req, res) => {
@@ -25,16 +31,14 @@ app.get("/login", (req, res) => {
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/login.html"));
 });
-app.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/dashboard.html"));
-});
-app.get("/admin-dashboard", (req, res) => {
+app.get(/^\/(dashboard|admin-dashboard)(\/.*)?$/, (req, res) => {
   res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
 app.get("/reports", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
 
+<<<<<<< HEAD
 // Great-circle / Haversine distance in kilometers
 function haversineDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in km
@@ -55,54 +59,151 @@ function isValidPaymentAmount(amount) {
   if (amount <= 0 || !Number.isInteger(amount)) return false;
   if (amount === 10 || amount === 30) return false;
   return amount % 10 === 0;
+=======
+// Fee schedule definitions by vehicle type
+const FEE_SCHEDULES = {
+  car: {
+    type: "car",
+    label: "Car",
+    baseHours: 3,
+    baseRate: 50,
+    hourlyRate: 20,
+    overnightSurcharge: 300,
+    towedThresholdHours: 24,
+  },
+  motorcycle: {
+    type: "motorcycle",
+    label: "Motorcycle",
+    baseHours: 2,
+    baseRate: 30,
+    hourlyRate: 10,
+    overnightSurcharge: 300,
+    towedThresholdHours: 24,
+  },
+};
+
+function getFeeSchedule(vehicleType) {
+  const normalized = String(vehicleType || "car").toLowerCase().trim();
+  return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 }
 
-// Calculate fee based on entry and exit time
-function calculateFeeAndStatus(entryTime, exitTime) {
+// Helper to validate payment amount: accepts any amount from minAllowed (50, or exact motorcycle fee) up to 1000
+function isValidPaymentAmount(amount, fee = 50) {
+  if (typeof amount !== "number" || isNaN(amount)) return false;
+  const minAllowed = Math.min(50, fee > 0 ? fee : 50);
+  return amount >= minAllowed && amount <= 1000;
+}
+
+// Helper to determine if a given date falls within peak demand hours
+// Morning Peak: 7:00 AM - 10:00 AM (7, 8, 9)
+// Evening Peak: 5:00 PM - 8:00 PM (17, 18, 19)
+function isPeakHour(date) {
+  const h = date.getHours();
+  return (h >= 7 && h < 10) || (h >= 17 && h < 20);
+}
+
+// Checks if any portion of the stay occurred within peak demand hours
+function checkIsPeakSession(entryDate, exitDate) {
+  if (isPeakHour(entryDate) || isPeakHour(exitDate)) {
+    return true;
+  }
+  let cur = new Date(entryDate.getTime() + 60 * 60 * 1000);
+  while (cur < exitDate) {
+    if (isPeakHour(cur)) return true;
+    cur = new Date(cur.getTime() + 60 * 60 * 1000);
+  }
+  return false;
+}
+
+// Calculate fee based on entry, exit time, and vehicle type schedule
+function calculateFeeAndStatus(entryTime, exitTime, vehicleType = "car") {
+  const schedule = getFeeSchedule(vehicleType);
   const entryDate = new Date(entryTime);
   const exitDate = new Date(exitTime);
 
   const diffMs = exitDate - entryDate;
-  const diffHours = diffMs / (1000 * 60 * 60);
-
-  if (diffHours >= 24) {
-    return { fee: 0, status: "towed" };
+  if (isNaN(diffMs) || diffMs < 0) {
+    return {
+      fee: 0,
+      status: "error",
+      error: "Exit time cannot be earlier than entry time.",
+      vehicleType: schedule.type,
+      vehicleLabel: schedule.label,
+      isPeak: false,
+      isOvernight: false,
+      rateType: "Invalid",
+    };
   }
 
+  const diffHours = diffMs / (1000 * 60 * 60);
+
+  // 1. Towing policy (>= 24 hours stay)
+  if (diffHours >= schedule.towedThresholdHours) {
+    return {
+      fee: 0,
+      status: "towed",
+      vehicleType: schedule.type,
+      vehicleLabel: schedule.label,
+      isPeak: false,
+      isOvernight: false,
+      rateType: "Towed",
+      durationHours: Number(diffHours.toFixed(2)),
+    };
+  }
+
+  // 2. Dynamic rate determination (Peak 1.5x multiplier applied to active vehicle schedule)
+  const isPeak = checkIsPeakSession(entryDate, exitDate);
+  const baseHours = schedule.baseHours;
+  const baseRate = isPeak ? Math.round(schedule.baseRate * 1.5) : schedule.baseRate;
+  const hourlyRate = isPeak ? Math.round(schedule.hourlyRate * 1.5) : schedule.hourlyRate;
+
+  // 3. Overnight surcharge check (+₱300 after 10:00 PM)
   let crosses10PM = false;
   let tenPM = new Date(entryDate);
   tenPM.setHours(22, 0, 0, 0);
 
-  if (entryDate > tenPM) {
+  if (entryDate >= tenPM) {
     tenPM.setDate(tenPM.getDate() + 1);
   }
 
-  if (exitDate > tenPM) {
+  if (exitDate >= tenPM) {
     crosses10PM = true;
   }
 
   let fee = 0;
-
   if (crosses10PM) {
-    const hoursBefore10PM = Math.ceil((tenPM - entryDate) / (1000 * 60 * 60));
+    const hoursBefore10PM = Math.max(0, Math.ceil((tenPM - entryDate) / (1000 * 60 * 60)));
     let pre10Fee = 0;
     if (hoursBefore10PM > 0) {
-      pre10Fee = 50;
-      if (hoursBefore10PM > 3) {
-        pre10Fee += (hoursBefore10PM - 3) * 20;
+      pre10Fee = baseRate;
+      if (hoursBefore10PM > baseHours) {
+        pre10Fee += (hoursBefore10PM - baseHours) * hourlyRate;
       }
     }
-    fee = 300 + pre10Fee;
+    fee = schedule.overnightSurcharge + pre10Fee;
   } else {
-    const fullHours = Math.ceil(diffHours);
-    if (fullHours <= 3) {
-      fee = 50;
+    const fullHours = Math.max(1, Math.ceil(diffHours));
+    if (fullHours <= baseHours) {
+      fee = baseRate;
     } else {
-      fee = 50 + (fullHours - 3) * 20;
+      fee = baseRate + (fullHours - baseHours) * hourlyRate;
     }
   }
 
-  return { fee, status: "completed" };
+  return {
+    fee,
+    status: "completed",
+    vehicleType: schedule.type,
+    vehicleLabel: schedule.label,
+    isPeak,
+    isOvernight: crosses10PM,
+    rateType: isPeak ? "Peak Surge (1.5x)" : "Standard Rate",
+    baseHours,
+    baseRate,
+    hourlyRate,
+    durationHours: Number(diffHours.toFixed(2)),
+  };
 }
 
 function calculateChangeBreakdown(change) {
@@ -126,18 +227,28 @@ function logReport(type, message, options = {}) {
     floor = null,
     slotId = null,
     ticketId = null,
+    source = "system",
+    createdAt = new Date().toISOString(),
   } = options;
 
+  const derivedFloor =
+    floor !== null && floor !== undefined
+      ? floor
+      : slotId
+        ? Math.floor(Number(slotId) / 100)
+        : null;
+
   db.run(
-    `INSERT INTO reports (type, severity, message, floor, slot_id, ticket_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [type, severity, message, floor, slotId, ticketId],
+    `INSERT INTO reports (type, severity, message, floor, slot_id, ticket_id, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [type, severity, message, derivedFloor, slotId, ticketId, source, createdAt],
     (err) => {
       if (err) console.error("Failed to log report:", err.message);
     },
   );
 }
 
+<<<<<<< HEAD
 // GET /api/slots - Get all slots with floor and current status
 app.get("/api/slots", (req, res) => {
   db.all(
@@ -204,42 +315,368 @@ app.get("/api/status", (req, res) => {
     );
     db.run(
       "UPDATE slots SET status = 'occupied' WHERE status != 'closed' AND id IN (SELECT slot_id FROM tickets WHERE status = 'active')",
+=======
+const MOTORCYCLE_RESERVED_FLOOR = 1;
+const MOTORCYCLE_RESERVED_START = 100;
+const MOTORCYCLE_RESERVED_END = 119;
+const MOTORCYCLE_SLOT_CAPACITY = 6;
+const STANDARD_SLOT_CAPACITY = 1;
+
+function isMotorcycleReservedSlot(slotId, floor = 1) {
+  const idNum = Number(slotId);
+  const floorNum = Number(floor);
+  return (
+    floorNum === MOTORCYCLE_RESERVED_FLOOR &&
+    idNum >= MOTORCYCLE_RESERVED_START &&
+    idNum <= MOTORCYCLE_RESERVED_END
+  );
+}
+
+function evaluateSlotState(row) {
+  const id = Number(row.id);
+  const floor = Number(row.floor);
+  const carCount = Number(row.car_count || 0);
+  const motorcycleCount = Number(row.mc_count || 0);
+  const totalActive = Number(row.total_active || 0);
+  const isReservedMotorcycle = isMotorcycleReservedSlot(id, floor);
+
+  if (isReservedMotorcycle) {
+    const capacity = MOTORCYCLE_SLOT_CAPACITY;
+    const effectiveCapacity = MOTORCYCLE_SLOT_CAPACITY;
+    const taken = Math.min(MOTORCYCLE_SLOT_CAPACITY, motorcycleCount);
+    const remaining = Math.max(0, MOTORCYCLE_SLOT_CAPACITY - motorcycleCount);
+    const canAcceptMotorcycle = motorcycleCount < MOTORCYCLE_SLOT_CAPACITY;
+    const canAcceptCar = false;
+    const status = remaining > 0 ? "available" : "occupied";
+
+    return {
+      id,
+      floor,
+      isReservedMotorcycle: true,
+      reservedFor: "motorcycle",
+      capacity,
+      effectiveCapacity,
+      carCount: 0,
+      motorcycleCount,
+      taken,
+      remaining,
+      conflictWithCar: false,
+      canAcceptMotorcycle,
+      canAcceptCar,
+      status,
+    };
+  }
+
+  const taken = totalActive > 0 ? 1 : 0;
+  const remaining = totalActive === 0 ? 1 : 0;
+  return {
+    id,
+    floor,
+    isReservedMotorcycle: false,
+    reservedFor: null,
+    capacity: STANDARD_SLOT_CAPACITY,
+    effectiveCapacity: STANDARD_SLOT_CAPACITY,
+    carCount,
+    motorcycleCount,
+    taken,
+    remaining,
+    conflictWithCar: false,
+    canAcceptMotorcycle: totalActive === 0,
+    canAcceptCar: totalActive === 0,
+    status: remaining > 0 ? "available" : "occupied",
+  };
+}
+
+function syncSlotsTableStatus(callback) {
+  db.serialize(() => {
+    // Standard slots (not 100-119 on Floor 1): occupied when >= 1 active ticket
+    db.run(
+      `UPDATE slots
+       SET status = CASE
+         WHEN EXISTS (
+           SELECT 1 FROM tickets t
+           WHERE t.slot_id = slots.id AND t.status = 'active'
+         ) THEN 'occupied'
+         ELSE 'available'
+       END
+       WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)`
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
     );
 
+    // Reserved motorcycle slots (100-119 on Floor 1): occupied when active motorcycle count >= 6
+    db.run(
+      `UPDATE slots
+       SET status = CASE
+         WHEN (
+           SELECT COUNT(*) FROM tickets t
+           WHERE t.slot_id = slots.id
+             AND t.status = 'active'
+             AND t.vehicle_type = 'motorcycle'
+         ) >= 6 THEN 'occupied'
+         ELSE 'available'
+       END
+       WHERE floor = 1 AND id BETWEEN 100 AND 119`,
+      callback
+    );
+  });
+}
+
+function getEvaluatedSlots(callback) {
+  syncSlotsTableStatus(() => {
     const query = `
-      SELECT 
-        s.floor, 
-        COUNT(DISTINCT CASE WHEN t.status = 'active' THEN s.id END) AS taken
+      SELECT
+        s.id,
+        s.floor,
+        COUNT(CASE WHEN t.status = 'active' AND COALESCE(t.vehicle_type, 'car') = 'car' THEN 1 END) AS car_count,
+        COUNT(CASE WHEN t.status = 'active' AND t.vehicle_type = 'motorcycle' THEN 1 END) AS mc_count,
+        COUNT(CASE WHEN t.status = 'active' THEN 1 END) AS total_active
       FROM slots s
       LEFT JOIN tickets t ON s.id = t.slot_id AND t.status = 'active'
-      GROUP BY s.floor
+      GROUP BY s.id, s.floor
+      ORDER BY s.floor ASC, s.id ASC
     `;
+    db.all(query, (err, rows) => {
+      if (err) return callback(err);
+      const evaluated = (rows || []).map(evaluateSlotState);
+      callback(null, evaluated);
+    });
+  });
+}
 
-    db.all(query, (err, floorsData) => {
-      if (err) return res.status(500).json({ error: err.message });
+// GET /api/status - Get floor capacities, motorcycle reserved slot counters, and active tickets
+app.get("/api/status", (req, res) => {
+  getEvaluatedSlots((err, evaluatedSlots) => {
+    if (err) return res.status(500).json({ error: err.message });
 
-      let capacity = {
-        1: { total: 100, taken: 0 },
-        2: { total: 100, taken: 0 },
-        3: { total: 100, taken: 0 },
-      };
-      (floorsData || []).forEach((row) => {
-        if (capacity[row.floor]) {
-          capacity[row.floor].taken = row.taken;
+    const slotMap = new Map();
+    evaluatedSlots.forEach((s) => slotMap.set(s.id, s));
+
+    const floor1Slots = evaluatedSlots.filter((s) => s.floor === 1);
+    const reservedMcSlots = floor1Slots.filter((s) => s.isReservedMotorcycle);
+    const floor1StandardSlots = floor1Slots.filter((s) => !s.isReservedMotorcycle);
+
+    const carSlotsTotal = floor1StandardSlots.length;
+    const carSlotsTaken = floor1StandardSlots.reduce((acc, s) => acc + s.taken, 0);
+    const carSlotsAvailable = floor1StandardSlots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const mcReservedSlotsCount = reservedMcSlots.length;
+    const mcConflictSlotsCount = reservedMcSlots.filter((s) => s.conflictWithCar).length;
+    const mcActiveSlotsCount = mcReservedSlotsCount - mcConflictSlotsCount;
+    const mcTotalCapacity = mcReservedSlotsCount * MOTORCYCLE_SLOT_CAPACITY;
+    const mcEffectiveCapacity = mcActiveSlotsCount * MOTORCYCLE_SLOT_CAPACITY;
+    const mcTaken = reservedMcSlots.reduce((acc, s) => acc + s.motorcycleCount, 0);
+    const mcRemaining = reservedMcSlots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const floor1Available = carSlotsAvailable + mcRemaining;
+    const floor1Taken = carSlotsTaken + mcTaken + mcConflictSlotsCount;
+    const floor1Total = floor1Available + floor1Taken;
+
+    const floor2Slots = evaluatedSlots.filter((s) => s.floor === 2);
+    const floor2Taken = floor2Slots.reduce((acc, s) => acc + s.taken, 0);
+    const floor2Available = floor2Slots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const floor3Slots = evaluatedSlots.filter((s) => s.floor === 3);
+    const floor3Taken = floor3Slots.reduce((acc, s) => acc + s.taken, 0);
+    const floor3Available = floor3Slots.reduce((acc, s) => acc + s.remaining, 0);
+
+    const capacity = {
+      1: {
+        total: floor1Total,
+        taken: floor1Taken,
+        available: floor1Available,
+        carSlotsTotal,
+        carSlotsTaken,
+        carSlotsAvailable,
+        mcSlotsRange: "100-119",
+        mcSlotCapacity: MOTORCYCLE_SLOT_CAPACITY,
+        mcReservedSlotsCount,
+        mcConflictSlotsCount,
+        mcActiveSlotsCount,
+        mcTotalCapacity,
+        mcEffectiveCapacity,
+        mcTaken,
+        mcRemaining,
+      },
+      2: {
+        total: floor2Slots.length || 100,
+        taken: floor2Taken,
+        available: floor2Available,
+      },
+      3: {
+        total: floor3Slots.length || 100,
+        taken: floor3Taken,
+        available: floor3Available,
+      },
+    };
+
+    db.all(
+      "SELECT t.id, t.slot_id, t.entry_time, COALESCE(t.vehicle_type, 'car') AS vehicle_type, t.brand, t.color, t.year, t.plate_number, t.mv_file_number, s.floor, t.map_latitude, t.map_longitude FROM tickets t JOIN slots s ON t.slot_id = s.id WHERE t.status = 'active' ORDER BY t.entry_time DESC",
+      (ticketErr, tickets) => {
+        if (ticketErr) return res.status(500).json({ error: ticketErr.message });
+
+        const enrichedTickets = (tickets || []).map((t) => {
+          const s = slotMap.get(Number(t.slot_id));
+          return {
+            ...t,
+            is_reserved_motorcycle_slot: s ? s.isReservedMotorcycle : isMotorcycleReservedSlot(t.slot_id, t.floor),
+            slot_capacity: s ? s.capacity : 1,
+            slot_remaining: s ? s.remaining : 0,
+            slot_motorcycle_count: s ? s.motorcycleCount : 0,
+            slot_car_count: s ? s.carCount : 0,
+            slot_conflict_with_car: s ? s.conflictWithCar : false,
+          };
+        });
+
+        res.json({
+          capacity,
+          reservedMotorcycleSlots: reservedMcSlots,
+          tickets: enrichedTickets,
+        });
+      }
+    );
+  });
+});
+
+// POST /api/entry - Assign slot and create ticket with vehicleType and motorcycle slot reservation (100-120, capacity 6)
+app.post("/api/entry", (req, res) => {
+  const schedule = getFeeSchedule(req.body.vehicleType);
+  const vehicleType = schedule.type;
+
+  getEvaluatedSlots((err, evaluatedSlots) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    let chosenSlot = null;
+
+    if (vehicleType === "motorcycle") {
+      // 1. Fill Floor 1 motorcycle-reserved slots (100-120) first (up to 6 motorcycles per slot, skipping legacy car conflicts)
+      const reservedCandidates = evaluatedSlots
+        .filter((s) => s.isReservedMotorcycle && s.canAcceptMotorcycle)
+        .sort((a, b) => a.id - b.id);
+
+      if (reservedCandidates.length > 0) {
+        chosenSlot = reservedCandidates[0];
+      } else {
+        // 2. Fallback to standard non-reserved slots if all reserved slots 100-120 are full or blocked
+        const fallbackCandidates = evaluatedSlots
+          .filter((s) => !s.isReservedMotorcycle && s.canAcceptMotorcycle)
+          .sort((a, b) => a.floor - b.floor || a.id - b.id);
+        if (fallbackCandidates.length > 0) {
+          chosenSlot = fallbackCandidates[0];
         }
+      }
+    } else {
+      // Cars must NEVER be parked in motorcycle-reserved slots (100-120 on Floor 1)
+      const carCandidates = evaluatedSlots
+        .filter((s) => !s.isReservedMotorcycle && s.canAcceptCar)
+        .sort((a, b) => a.floor - b.floor || a.id - b.id);
+      if (carCandidates.length > 0) {
+        chosenSlot = carCandidates[0];
+      }
+    }
+
+    if (!chosenSlot) {
+      logReport("capacity_issue", `Parking lot reached full capacity for ${schedule.label}`, {
+        severity: "warning",
       });
 
-      db.all(
-        "SELECT t.id, t.slot_id, t.entry_time, s.floor, t.map_latitude, t.map_longitude FROM tickets t JOIN slots s ON t.slot_id = s.id WHERE t.status = 'active' ORDER BY t.entry_time DESC",
-        (err, tickets) => {
-          if (err) return res.status(500).json({ error: err.message });
-          res.json({ capacity, tickets });
+      return res.status(400).json({
+        error:
+          vehicleType === "car"
+            ? "No car parking slots available (slots 100-120 on Floor 1 are reserved for motorcycles)."
+            : "Parking is full",
+      });
+    }
+
+    const entryTime = req.body.entryTime || new Date().toISOString();
+    const mapLatitude = req.body.mapLatitude ?? null;
+    const mapLongitude = req.body.mapLongitude ?? null;
+
+    if (
+      (mapLatitude !== null &&
+        (!Number.isFinite(Number(mapLatitude)) ||
+          Number(mapLatitude) < 14.3 ||
+          Number(mapLatitude) > 14.9)) ||
+      (mapLongitude !== null &&
+        (!Number.isFinite(Number(mapLongitude)) ||
+          Number(mapLongitude) < 120.8 ||
+          Number(mapLongitude) > 121.3))
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Ticket map pin must be within Metro Manila." });
+    }
+
+    const newOccupied = chosenSlot.isReservedMotorcycle
+      ? chosenSlot.motorcycleCount + 1
+      : 1;
+    const newRemaining = chosenSlot.isReservedMotorcycle
+      ? Math.max(0, MOTORCYCLE_SLOT_CAPACITY - newOccupied)
+      : 0;
+    const newSlotStatus = newRemaining === 0 ? "occupied" : "available";
+
+    const brand = req.body.brand ? String(req.body.brand).trim() : null;
+    const color = req.body.color ? String(req.body.color).trim() : null;
+    const yearVal = req.body.year ? parseInt(req.body.year, 10) : null;
+    const year = Number.isInteger(yearVal) ? yearVal : null;
+    const plateNumber = req.body.plateNumber
+      ? String(req.body.plateNumber).trim().toUpperCase()
+      : req.body.plate_number
+        ? String(req.body.plate_number).trim().toUpperCase()
+        : null;
+    const mvFileNumber = req.body.mvFileNumber
+      ? String(req.body.mvFileNumber).trim().toUpperCase()
+      : req.body.mv_file_number
+        ? String(req.body.mv_file_number).trim().toUpperCase()
+        : null;
+
+    if (!plateNumber && !mvFileNumber) {
+      return res.status(400).json({
+        error:
+          "Vehicle identification required: Please provide either a Plate Number or an MV File Number.",
+      });
+    }
+
+    db.serialize(() => {
+      db.run("UPDATE slots SET status = ? WHERE id = ?", [
+        newSlotStatus,
+        chosenSlot.id,
+      ]);
+      db.run(
+        "INSERT INTO tickets (slot_id, entry_time, vehicle_type, map_latitude, map_longitude, brand, color, year, plate_number, mv_file_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [chosenSlot.id, entryTime, vehicleType, mapLatitude, mapLongitude, brand, color, year, plateNumber, mvFileNumber],
+        function (insertErr) {
+          if (insertErr) return res.status(500).json({ error: insertErr.message });
+
+          logReport("vehicle_entered", `${schedule.label} entered lot`, {
+            severity: "info",
+            floor: chosenSlot.floor,
+            slotId: chosenSlot.id,
+            ticketId: this.lastID,
+          });
+
+          res.json({
+            ticketId: this.lastID,
+            slotId: chosenSlot.id,
+            floor: chosenSlot.floor,
+            entryTime,
+            vehicleType,
+            brand,
+            color,
+            year,
+            plateNumber,
+            mvFileNumber,
+            isReservedMotorcycleSlot: chosenSlot.isReservedMotorcycle,
+            slotCapacity: chosenSlot.capacity,
+            slotOccupied: newOccupied,
+            slotRemaining: newRemaining,
+          });
         },
       );
     });
   });
 });
 
+<<<<<<< HEAD
 // POST /api/entry - Assign slot and create ticket
 app.post("/api/entry", (req, res) => {
   // Fill floor 1 first, then 2, then 3; skips closed and occupied slots
@@ -303,6 +740,9 @@ app.post("/api/entry", (req, res) => {
 });
 
 // GET /api/ticket/:id/fee - Calculate fee for display
+=======
+// GET /api/ticket/:id/fee - Calculate fee for display using ticket's vehicle_type
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 app.get("/api/ticket/:id/fee", (req, res) => {
   const exitTime = req.query.exitTime || new Date().toISOString();
 
@@ -314,11 +754,21 @@ app.get("/api/ticket/:id/fee", (req, res) => {
       if (!ticket)
         return res.status(404).json({ error: "Active ticket not found" });
 
-      const { fee, status } = calculateFeeAndStatus(
+      const vehicleType = ticket.vehicle_type || req.query.vehicleType || "car";
+      const feeResult = calculateFeeAndStatus(
         ticket.entry_time,
         exitTime,
+        vehicleType,
       );
-      res.json({ fee, status, entryTime: ticket.entry_time, exitTime });
+      if (feeResult.status === "error") {
+        return res.status(400).json({ error: feeResult.error });
+      }
+
+      res.json({
+        ...feeResult,
+        entryTime: ticket.entry_time,
+        exitTime,
+      });
     },
   );
 });
@@ -336,34 +786,40 @@ app.post("/api/exit", (req, res) => {
       if (!ticket)
         return res.status(404).json({ error: "Active ticket not found" });
 
-      const { fee, status } = calculateFeeAndStatus(
+      const vehicleType = ticket.vehicle_type || req.body.vehicleType || "car";
+      const feeResult = calculateFeeAndStatus(
         ticket.entry_time,
         exitTime,
+        vehicleType,
       );
+      if (feeResult.status === "error") {
+        return res.status(400).json({ error: feeResult.error });
+      }
+
+      const { fee, status } = feeResult;
 
       if (status === "towed") {
         db.serialize(() => {
-          db.run("UPDATE slots SET status = 'available' WHERE id = ?", [
-            ticket.slot_id,
-          ]);
           db.run(
             "UPDATE tickets SET exit_time = ?, status = 'towed', fee = 0 WHERE id = ?",
             [exitTime, ticketId],
-            (err) => {
-              if (err) return res.status(500).json({ error: err.message });
-              logReport(
-                "vehicle_towed",
-                "Vehicle marked as towed after 24+ hour stay",
-                {
-                  severity: "critical",
-                  slotId: ticket.slot_id,
-                  ticketId: ticketId,
-                },
-              );
-              res.json({
-                success: true,
-                status: "towed",
-                message: "Vehicle was towed. No fee collected.",
+            (updateErr) => {
+              if (updateErr) return res.status(500).json({ error: updateErr.message });
+              syncSlotsTableStatus(() => {
+                logReport(
+                  "vehicle_towed",
+                  "Vehicle marked as towed after 24+ hour stay",
+                  {
+                    severity: "critical",
+                    slotId: ticket.slot_id,
+                    ticketId: ticketId,
+                  },
+                );
+                res.json({
+                  success: true,
+                  status: "towed",
+                  message: "Vehicle was towed. No fee collected.",
+                });
               });
             },
           );
@@ -371,8 +827,8 @@ app.post("/api/exit", (req, res) => {
         return;
       }
 
-      if (!isValidPaymentAmount(amountReceived)) {
-        logReport("payment_issue", "Invalid cash amount rejected", {
+      if (!isValidPaymentAmount(amountReceived, fee)) {
+        logReport("payment_issue", `Invalid cash amount rejected: ₱${amountReceived}`, {
           severity: "warning",
           slotId: ticket.slot_id,
           ticketId: ticketId,
@@ -380,11 +836,21 @@ app.post("/api/exit", (req, res) => {
 
         return res.status(400).json({
           error:
-            "Invalid cash amount. Only 20, 50, 100, 500, 1000 bill combinations are accepted.",
+            "Invalid cash amount. Please input an amount from ₱50 to ₱1,000.",
         });
       }
 
       if (amountReceived < fee) {
+        logReport(
+          "payment_issue",
+          `Insufficient cash amount: ₱${amountReceived} (Total Fee: ₱${fee})`,
+          {
+            severity: "warning",
+            slotId: ticket.slot_id,
+            ticketId: ticketId,
+          },
+        );
+
         return res
           .status(400)
           .json({ error: `Insufficient amount. Fee is ₱${fee}` });
@@ -394,9 +860,6 @@ app.post("/api/exit", (req, res) => {
       const changeBreakdown = calculateChangeBreakdown(changeGiven);
 
       db.serialize(() => {
-        db.run("UPDATE slots SET status = 'available' WHERE id = ?", [
-          ticket.slot_id,
-        ]);
         db.run(
           "UPDATE tickets SET exit_time = ?, status = 'completed', fee = ?, amount_received = ?, change_given = ?, change_breakdown = ? WHERE id = ?",
           [
@@ -407,19 +870,21 @@ app.post("/api/exit", (req, res) => {
             JSON.stringify(changeBreakdown),
             ticketId,
           ],
-          (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            logReport("payment_completed", "Payment completed successfully", {
-              severity: "info",
-              slotId: ticket.slot_id,
-              ticketId: ticketId,
-            });
-            res.json({
-              success: true,
-              fee,
-              changeGiven,
-              changeBreakdown,
-              status: "completed",
+          (updateErr) => {
+            if (updateErr) return res.status(500).json({ error: updateErr.message });
+            syncSlotsTableStatus(() => {
+              logReport("payment_completed", "Payment completed successfully", {
+                severity: "info",
+                slotId: ticket.slot_id,
+                ticketId: ticketId,
+              });
+              res.json({
+                success: true,
+                fee,
+                changeGiven,
+                changeBreakdown,
+                status: "completed",
+              });
             });
           },
         );
@@ -430,38 +895,50 @@ app.post("/api/exit", (req, res) => {
 
 // GET /api/kpis - Dashboard KPI data
 app.get("/api/kpis", (req, res) => {
+  const reqDate = req.query.date;
+
   const totalSpacesQuery = `
     SELECT COUNT(*) AS total_spaces
     FROM slots
   `;
 
-  const revenueQuery = `
+  const activeSpacesQuery = `
+    SELECT COUNT(*) AS active_spaces
+    FROM tickets
+    WHERE status = 'active'
+  `;
+
+  const activeAlertsQuery = `
+    SELECT COUNT(*) AS active_alerts
+    FROM reports
+    WHERE severity != 'info'
+  `;
+
+  const totalRevenueQuery = `
     SELECT COALESCE(SUM(fee), 0) AS total_revenue
     FROM tickets
     WHERE status = 'completed'
   `;
 
-  const turnoverQuery = `
+  const completedSessionsQuery = `
     SELECT COUNT(*) AS completed_sessions
     FROM tickets
     WHERE status = 'completed'
   `;
 
   db.get(totalSpacesQuery, (err, spacesRow) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+    if (err) return res.status(500).json({ error: err.message });
+    const totalSpaces = Number(spacesRow?.total_spaces || 0);
 
-    db.get(revenueQuery, (err, revenueRow) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    db.get(activeSpacesQuery, (err, activeRow) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const activeSpaces = Number(activeRow?.active_spaces || 0);
 
-      db.get(turnoverQuery, (err, turnoverRow) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
+      db.get(activeAlertsQuery, (err, alertsRow) => {
+        if (err) return res.status(500).json({ error: err.message });
+        const activeAlerts = Number(alertsRow?.active_alerts || 0);
 
+<<<<<<< HEAD
         const totalSpaces = Number(spacesRow.total_spaces || 0);
         const totalRevenue = Number(revenueRow.total_revenue || 0);
         const completedSessions = Number(turnoverRow.completed_sessions || 0);
@@ -478,6 +955,146 @@ app.get("/api/kpis", (req, res) => {
           completedSessions,
           revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
           turnoverRate: Number(turnoverRate.toFixed(2)),
+=======
+        db.get(totalRevenueQuery, (err, revenueRow) => {
+          if (err) return res.status(500).json({ error: err.message });
+          const totalRevenue = Number(revenueRow?.total_revenue || 0);
+
+          db.get(completedSessionsQuery, (err, turnoverRow) => {
+            if (err) return res.status(500).json({ error: err.message });
+            const completedSessions = Number(turnoverRow?.completed_sessions || 0);
+
+            // Determine target today & yesterday dates
+            const dateQuery = reqDate
+              ? `SELECT date(?) AS today, date(?, '-1 day') AS yesterday`
+              : `SELECT date('now', 'localtime') AS today, date('now', '-1 day', 'localtime') AS yesterday`;
+            const dateParams = reqDate ? [reqDate, reqDate] : [];
+
+            db.get(dateQuery, dateParams, (err, dateRow) => {
+              if (err) return res.status(500).json({ error: err.message });
+              const todayStr = dateRow.today;
+              let yesterdayStr = dateRow.yesterday;
+
+              // Check if yesterday has tickets; if not, fallback to the latest date before today
+              const fallbackQuery = `
+                SELECT MAX(DATE(COALESCE(exit_time, entry_time))) AS prev_date
+                FROM tickets
+                WHERE DATE(COALESCE(exit_time, entry_time)) < ?
+              `;
+
+              db.get(
+                "SELECT COUNT(*) AS c FROM tickets WHERE (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))",
+                [yesterdayStr, yesterdayStr],
+                (err, yCountRow) => {
+                  if (err) return res.status(500).json({ error: err.message });
+
+                  const proceedWithYesterday = (effectiveYesterday) => {
+                    // Aggregate scoped to date range:
+                    // (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))
+                    const dailyAggregateQuery = `
+                      SELECT
+                        COALESCE(SUM(CASE WHEN status = 'completed' THEN fee ELSE 0 END), 0) AS revenue,
+                        COUNT(CASE WHEN status = 'completed' THEN 1 END) AS completed_sessions,
+                        COUNT(CASE WHEN status = 'active' THEN 1 END) AS active_sessions,
+                        COUNT(*) AS total_sessions
+                      FROM tickets
+                      WHERE (DATE(exit_time) = ? OR (exit_time IS NULL AND DATE(entry_time) = ?))
+                    `;
+
+                    db.get(dailyAggregateQuery, [todayStr, todayStr], (err, todayStats) => {
+                      if (err) return res.status(500).json({ error: err.message });
+
+                      db.get(dailyAggregateQuery, [effectiveYesterday, effectiveYesterday], (err, yestStats) => {
+                        if (err) return res.status(500).json({ error: err.message });
+
+                        const todayRev = Number(todayStats?.revenue || 0);
+                        const todayCompleted = Number(todayStats?.completed_sessions || 0);
+
+                        const yestRev = Number(yestStats?.revenue || 0);
+                        const yestCompleted = Number(yestStats?.completed_sessions || 0);
+
+                        // Revenue per available space for today:
+                        const revenuePerAvailableSpace =
+                          totalSpaces > 0 ? todayRev / totalSpaces : 0;
+                        const yestRevenuePerSpace =
+                          totalSpaces > 0 ? yestRev / totalSpaces : 0;
+
+                        // Revenue delta vs yesterday
+                        let revenuePerAvailableSpaceDelta = "+0.0%";
+                        let revenueDeltaPositive = true;
+                        if (yestRevenuePerSpace > 0) {
+                          const pct = ((revenuePerAvailableSpace - yestRevenuePerSpace) / yestRevenuePerSpace) * 100;
+                          revenuePerAvailableSpaceDelta = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+                          revenueDeltaPositive = pct >= 0;
+                        } else if (revenuePerAvailableSpace > 0) {
+                          revenuePerAvailableSpaceDelta = "+100.0%";
+                          revenueDeltaPositive = true;
+                        }
+
+                        // Current Occupancy: active / total * 100, rounded
+                        const currentOccupancy =
+                          totalSpaces > 0 ? Math.round((activeSpaces / totalSpaces) * 100) : 0;
+
+                        // Yesterday occupancy:
+                        // Estimate yesterday's occupancy from concurrent/sessions
+                        const yestSessions = Number(yestStats?.total_sessions || 0);
+                        const yestEstOccupancy = totalSpaces > 0 ? Math.round((yestSessions * 0.75 / totalSpaces) * 100) : 0;
+                        const occDeltaVal = currentOccupancy - yestEstOccupancy;
+                        const occupancyDelta = `${occDeltaVal >= 0 ? "+" : ""}${occDeltaVal.toFixed(1)}%`;
+
+                        // Turnover Rate: completed / totalSpaces
+                        const turnoverRate =
+                          totalSpaces > 0 ? todayCompleted / totalSpaces : 0;
+                        const yestTurnoverRate =
+                          totalSpaces > 0 ? yestCompleted / totalSpaces : 0;
+                        const toDiff = turnoverRate - yestTurnoverRate;
+                        const turnoverRateDelta = `${toDiff >= 0 ? "+" : ""}${toDiff.toFixed(2)}x`;
+                        const turnoverDeltaPositive = toDiff >= 0;
+
+                        res.json({
+                          // Existing backwards-compatible fields
+                          totalSpaces,
+                          totalRevenue,
+                          completedSessions,
+                          revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
+                          turnoverRate: Number(turnoverRate.toFixed(2)),
+
+                          // Extended fields
+                          activeSpaces,
+                          currentOccupancy,
+                          activeAlerts,
+
+                          todayRevenue: Number(todayRev.toFixed(2)),
+                          todayCompletedSessions: todayCompleted,
+                          yesterdayDate: effectiveYesterday,
+                          todayDate: todayStr,
+
+                          revenuePerAvailableSpaceDelta,
+                          revenueDeltaPositive,
+                          occupancyDelta,
+                          turnoverRateDelta,
+                          turnoverDeltaPositive,
+                        });
+                      });
+                    });
+                  };
+
+                  if (yCountRow && yCountRow.c > 0) {
+                    proceedWithYesterday(yesterdayStr);
+                  } else {
+                    db.get(fallbackQuery, [todayStr], (err, prevRow) => {
+                      if (!err && prevRow && prevRow.prev_date) {
+                        proceedWithYesterday(prevRow.prev_date);
+                      } else {
+                        proceedWithYesterday(yesterdayStr);
+                      }
+                    });
+                  }
+                }
+              );
+            });
+          });
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
         });
       });
     });
@@ -615,12 +1232,32 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
         };
       });
 
+      const summary = { HIGH: 0, MEDIUM: 0, LOW: 0 };
+      spaces.forEach((sp) => {
+        if (summary[sp.turnoverLevel] !== undefined) {
+          summary[sp.turnoverLevel]++;
+        }
+      });
+
       res.json({
         totalSpaces,
         totalVehicles,
+<<<<<<< HEAD
         totalRevenue: Number(totalRevenue.toFixed(2)),
         revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
         turnoverRate: Number(turnoverRate.toFixed(2)),
+=======
+        totalRevenue: Number(
+          totalRevenue.toFixed(2)
+        ),
+        revenuePerAvailableSpace: Number(
+          revenuePerAvailableSpace.toFixed(2)
+        ),
+        turnoverRate: Number(
+          turnoverRate.toFixed(2)
+        ),
+        summary,
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
         spaces,
         vehicles,
       });
@@ -628,6 +1265,7 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
   });
 });
 
+<<<<<<< HEAD
 // GET /api/reports - Paginated incident reports with multi-slot closure info
 app.get("/api/reports", (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -692,6 +1330,161 @@ app.get("/api/reports", (req, res) => {
       },
     );
   });
+=======
+// GET /api/analytics/peak-hours
+app.get("/api/analytics/peak-hours", (req, res) => {
+  const query = `
+    SELECT strftime('%H', entry_time) AS hour, COUNT(*) AS entries
+    FROM tickets
+    WHERE entry_time IS NOT NULL
+    GROUP BY hour
+    ORDER BY hour ASC
+  `;
+
+  db.all(query, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const map = {};
+    (rows || []).forEach((r) => {
+      if (r.hour !== null) {
+        map[r.hour] = Number(r.entries || 0);
+      }
+    });
+
+    const result = [];
+    for (let i = 0; i < 24; i++) {
+      const h = String(i).padStart(2, "0");
+      result.push({
+        hour: h,
+        entries: map[h] || 0,
+      });
+    }
+
+    res.json(result);
+  });
+});
+
+// GET /api/analytics/hourly-occupancy
+app.get("/api/analytics/hourly-occupancy", (req, res) => {
+  const query = `
+    SELECT entry_time, exit_time
+    FROM tickets
+    WHERE entry_time IS NOT NULL
+  `;
+
+  db.all(query, (err, tickets) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const daySet = new Set();
+    (tickets || []).forEach((t) => {
+      if (t.entry_time) {
+        daySet.add(t.entry_time.slice(0, 10));
+      }
+    });
+
+    const days = Array.from(daySet).sort();
+    const dayCount = days.length || 1;
+
+    const parsedTickets = (tickets || []).map((t) => ({
+      entry: new Date(t.entry_time).getTime(),
+      exit: t.exit_time ? new Date(t.exit_time).getTime() : Infinity,
+    }));
+
+    const result = [];
+    for (let h = 0; h < 24; h++) {
+      const hourStr = String(h).padStart(2, "0");
+      let totalParkedAcrossDays = 0;
+
+      for (const d of days) {
+        const hourTs = new Date(`${d}T${hourStr}:00:00`).getTime();
+        let parkedCount = 0;
+        for (const t of parsedTickets) {
+          if (t.entry <= hourTs && t.exit > hourTs) {
+            parkedCount++;
+          }
+        }
+        totalParkedAcrossDays += parkedCount;
+      }
+
+      const avgOccupancy = Math.round(totalParkedAcrossDays / dayCount);
+      result.push({
+        hour: hourStr,
+        avgOccupancy,
+      });
+    }
+
+    res.json(result);
+  });
+});
+
+// GET /api/analytics/revenue-trend
+app.get("/api/analytics/revenue-trend", (req, res) => {
+  const query = `
+    SELECT date(exit_time) AS date, SUM(fee) AS revenue
+    FROM tickets
+    WHERE status = 'completed' AND exit_time IS NOT NULL
+    GROUP BY date(exit_time)
+    ORDER BY date ASC
+  `;
+
+  db.all(query, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const result = (rows || []).map((r) => ({
+      date: r.date,
+      revenue: Number(r.revenue || 0),
+    }));
+    res.json(result);
+  });
+});
+
+// GET /api/recent-events - Real-time activity feed
+app.get("/api/recent-events", (req, res) => {
+  const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
+  const query = `
+    SELECT r.id, r.type, r.severity, r.message,
+           COALESCE(r.floor, s.floor, ts.floor, CAST(COALESCE(r.slot_id, t.slot_id) / 100 AS INTEGER)) AS floor,
+           COALESCE(r.slot_id, t.slot_id) AS slot_id,
+           r.ticket_id, r.source,
+           CASE
+             WHEN r.created_at LIKE '% %' AND r.created_at NOT LIKE '%Z'
+             THEN REPLACE(r.created_at, ' ', 'T') || 'Z'
+             ELSE r.created_at
+           END AS created_at,
+           t.vehicle_type, t.brand, t.color, t.year, t.plate_number, t.mv_file_number,
+           CASE WHEN r.type = 'payment_completed' THEN t.fee ELSE NULL END AS fee,
+           t.status AS ticket_status
+    FROM reports r
+    LEFT JOIN tickets t ON r.ticket_id = t.id
+    LEFT JOIN slots s ON r.slot_id = s.id
+    LEFT JOIN slots ts ON t.slot_id = ts.id
+    ORDER BY created_at DESC, r.id DESC
+    LIMIT ?
+  `;
+  db.all(query, [limit], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
+app.get("/api/reports", (req, res) => {
+  db.all(
+    `SELECT id, type, severity, message,
+            COALESCE(floor, CAST(slot_id / 100 AS INTEGER)) AS floor,
+            slot_id, ticket_id, source,
+            CASE
+              WHEN created_at LIKE '% %' AND created_at NOT LIKE '%Z'
+              THEN REPLACE(created_at, ' ', 'T') || 'Z'
+              ELSE created_at
+            END AS created_at
+     FROM reports
+     ORDER BY created_at DESC, id DESC
+     LIMIT 50`,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    },
+  );
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 });
 
 // DELETE /api/reports/:id - Remove a report ticket
@@ -865,9 +1658,9 @@ app.post("/api/reports", (req, res) => {
 
   db.run(
     `INSERT INTO reports
-      (type, severity, message, floor, source)
-     VALUES (?, ?, ?, ?, 'admin')`,
-    [type, severity, cleanMessage, normalizedFloor],
+      (type, severity, message, floor, source, created_at)
+     VALUES (?, ?, ?, ?, 'admin', ?)`,
+    [type, severity, cleanMessage, normalizedFloor, new Date().toISOString()],
     function (err) {
       if (err) {
         console.error("Failed to create report:", err.message);
@@ -1161,14 +1954,81 @@ app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
   );
 });
 
+<<<<<<< HEAD
 // Initial automated forecast sync on startup
 setTimeout(() => {
   syncAllForecasts(db).catch((e) =>
     console.error("Startup forecast sync notice:", e.message),
   );
 }, 1500);
+=======
+// Diagnostic and health endpoint for production environments like Render
+app.get("/api/health", (req, res) => {
+  const hasDbUrl = Boolean(process.env.DATABASE_URL);
+  if (!hasDbUrl) {
+    return res.status(503).json({
+      status: "error",
+      databaseConnected: false,
+      message: "DATABASE_URL environment variable is not configured.",
+      renderHint: "Add DATABASE_URL in Render Dashboard -> Web Service -> Environment.",
+    });
+  }
+
+  db.all(
+    `SELECT
+       (SELECT COUNT(*) FROM slots) AS slots_count,
+       (SELECT COUNT(*) FROM tickets) AS tickets_count,
+       (SELECT COUNT(*) FROM tickets WHERE status = 'active') AS active_tickets_count,
+       (SELECT COUNT(*) FROM reports) AS reports_count`,
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({
+          status: "error",
+          databaseConnected: false,
+          error: err.message,
+        });
+      }
+      const counts = rows && rows[0] ? rows[0] : {};
+      res.json({
+        status: "ok",
+        databaseConnected: true,
+        counts: {
+          slots: Number(counts.slots_count || 0),
+          tickets: Number(counts.tickets_count || 0),
+          activeTickets: Number(counts.active_tickets_count || 0),
+          reports: Number(counts.reports_count || 0),
+        },
+      });
+    }
+  );
+});
+
+// On-demand database seeding endpoint (accessible via GET in browser or POST)
+app.all("/api/seed", async (req, res) => {
+  if (!process.env.DATABASE_URL) {
+    return res.status(503).json({
+      success: false,
+      error: "DATABASE_URL is not configured. Please set DATABASE_URL in your Render Environment variables.",
+    });
+  }
+
+  try {
+    console.log("🌱 Manual re-seed requested via /api/seed...");
+    const stats = await db.reseed({ clearExisting: true });
+    res.json({
+      success: true,
+      message: "Database successfully populated with 300 parking spaces and 30-day synthetic telemetry.",
+      stats,
+    });
+  } catch (err) {
+    console.error("❌ Seed endpoint error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+>>>>>>> 46bb2e91a5c6c14402a6313d068c0dc7c83fb3cb
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
