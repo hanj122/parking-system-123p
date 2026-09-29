@@ -87,3 +87,4 @@ CREATE INDEX IF NOT EXISTS idx_tickets_entry_time ON tickets(entry_time);
 CREATE INDEX IF NOT EXISTS idx_tickets_exit_time ON tickets(exit_time);
 CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at);
 CREATE INDEX IF NOT EXISTS idx_slots_floor ON slots(floor);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_dedup ON demand_forecasts(source, external_id);
