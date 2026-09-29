@@ -30,28 +30,28 @@
     <script>
       // Apply theme and glass effect before first paint to prevent flash
       try {
-        const theme = localStorage.getItem('parkwise_theme') || 'light';
+        const theme = localStorage.getItem("parkwise_theme") || "light";
         const isDark =
-          theme === 'dark' ||
-          (theme === 'system' &&
+          theme === "dark" ||
+          (theme === "system" &&
             window.matchMedia &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches);
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
         if (isDark) {
-          document.documentElement.classList.add('dark');
-          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.classList.add("dark");
+          document.documentElement.setAttribute("data-theme", "dark");
         } else {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.setAttribute('data-theme', 'light');
+          document.documentElement.classList.remove("dark");
+          document.documentElement.setAttribute("data-theme", "light");
         }
-        if (localStorage.getItem('parkwise_glass') === 'true') {
-          document.documentElement.classList.add('glass-effect');
+        if (localStorage.getItem("parkwise_glass") === "true") {
+          document.documentElement.classList.add("glass-effect");
         } else {
-          document.documentElement.classList.remove('glass-effect');
+          document.documentElement.classList.remove("glass-effect");
         }
-        if (localStorage.getItem('parkwise_motion') === 'false') {
-          document.documentElement.classList.add('no-animations');
+        if (localStorage.getItem("parkwise_motion") === "false") {
+          document.documentElement.classList.add("no-animations");
         } else {
-          document.documentElement.classList.remove('no-animations');
+          document.documentElement.classList.remove("no-animations");
         }
       } catch (e) {}
 
@@ -66,7 +66,9 @@
       }
     </script>
   </head>
-  <body class="bg-[#f8fafc] dark:bg-[#09090b] text-gray-900 dark:text-gray-100 font-sans antialiased">
+  <body
+    class="bg-[#f8fafc] dark:bg-[#09090b] text-gray-900 dark:text-gray-100 font-sans antialiased"
+  >
     <div id="root"></div>
     <script type="module" crossorigin src="/assets/index-tbUKYf1H.js"></script>
   </body>

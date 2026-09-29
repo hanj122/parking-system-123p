@@ -65,7 +65,9 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function getFeeSchedule(vehicleType) {
-    const normalized = String(vehicleType || "car").toLowerCase().trim();
+    const normalized = String(vehicleType || "car")
+      .toLowerCase()
+      .trim();
     return FEE_SCHEDULES[normalized] || FEE_SCHEDULES.car;
   }
 
@@ -253,10 +255,11 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
-  window.setQuickAmount = function(amount) {
+  window.setQuickAmount = function (amount) {
     if (!cashInput) return;
-    if (amount === 'exact') {
-      cashInput.value = currentFee || getFeeSchedule(currentVehicleType).baseRate;
+    if (amount === "exact") {
+      cashInput.value =
+        currentFee || getFeeSchedule(currentVehicleType).baseRate;
     } else {
       cashInput.value = amount;
     }
@@ -268,7 +271,8 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function goToTicketsPage(page) {
-    const totalPages = Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
+    const totalPages =
+      Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
     if (page < 1 || page > totalPages) return;
     currentTicketsPage = page;
     renderTickets(currentTicketsData, false);
@@ -523,7 +527,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const totalPages = Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
+    const totalPages =
+      Math.ceil(currentTicketsData.length / TICKETS_PER_PAGE) || 1;
     if (resetPage) {
       currentTicketsPage = 1;
     } else {
@@ -532,7 +537,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const startIndex = (currentTicketsPage - 1) * TICKETS_PER_PAGE;
-    const endIndex = Math.min(startIndex + TICKETS_PER_PAGE, currentTicketsData.length);
+    const endIndex = Math.min(
+      startIndex + TICKETS_PER_PAGE,
+      currentTicketsData.length,
+    );
     const pagedTickets = currentTicketsData.slice(startIndex, endIndex);
 
     ticketsList.innerHTML = "";
@@ -540,10 +548,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const schedule = getFeeSchedule(t.vehicle_type);
       const isReservedMcSlot =
         Boolean(t.is_reserved_motorcycle_slot) ||
-        (Number(t.floor) === 1 && Number(t.slot_id) >= 100 && Number(t.slot_id) <= 120);
+        (Number(t.floor) === 1 &&
+          Number(t.slot_id) >= 100 &&
+          Number(t.slot_id) <= 120);
       let slotDetailText = `${schedule.label} · Slot ${t.slot_id} · Floor ${t.floor}`;
       if (isReservedMcSlot) {
-        const used = Math.min(6, Math.max(0, Number(t.slot_motorcycle_count || 1)));
+        const used = Math.min(
+          6,
+          Math.max(0, Number(t.slot_motorcycle_count || 1)),
+        );
         const rem =
           t.slot_remaining !== undefined
             ? Number(t.slot_remaining)
@@ -557,10 +570,7 @@ document.addEventListener("DOMContentLoaded", () => {
         : t.mv_file_number
           ? `MV File: ${t.mv_file_number}`
           : null;
-      const vehicleMetaLine = [
-        vehicleInfoParts.join(" · "),
-        idBadge,
-      ]
+      const vehicleMetaLine = [vehicleInfoParts.join(" · "), idBadge]
         .filter(Boolean)
         .join(" · ");
 
@@ -624,8 +634,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 onclick="window.goToTicketsPage(${p})"
                 class="${
                   isActive
-                    ? 'bg-[#1d1d1f] text-white font-bold'
-                    : 'bg-white text-[#1d1d1f] hover:bg-[#f5f5f7] border border-black/5 font-medium'
+                    ? "bg-[#1d1d1f] text-white font-bold"
+                    : "bg-white text-[#1d1d1f] hover:bg-[#f5f5f7] border border-black/5 font-medium"
                 } w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-xs transition-colors cursor-pointer shadow-xs"
                 aria-label="Go to page ${p}"
               >
@@ -733,19 +743,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const MOTORCYCLE_BRANDS_BY_REGION = {
     Japanese: ["Honda", "Yamaha", "Kawasaki", "Suzuki"],
-    Chinese: ["CFMOTO", "QJ Motor", "Benelli", "Bristol", "Loncin", "Rusi", "Motorstar"],
+    Chinese: [
+      "CFMOTO",
+      "QJ Motor",
+      "Benelli",
+      "Bristol",
+      "Loncin",
+      "Rusi",
+      "Motorstar",
+    ],
     American: ["Harley-Davidson", "Indian Motorcycle"],
-    European: ["Vespa", "KTM", "Ducati", "BMW Motorrad", "Husqvarna", "Triumph", "Aprilia", "Piaggio"],
+    European: [
+      "Vespa",
+      "KTM",
+      "Ducati",
+      "BMW Motorrad",
+      "Husqvarna",
+      "Triumph",
+      "Aprilia",
+      "Piaggio",
+    ],
     Taiwanese: ["Kymco", "SYM"],
     Indian: ["Bajaj", "TVS", "Royal Enfield"],
   };
 
   const entryDetailsModal = document.getElementById("entry-details-modal");
   const entryDetailsForm = document.getElementById("entry-details-form");
-  const entryModalVehicleBadge = document.getElementById("entry-modal-vehicle-badge");
+  const entryModalVehicleBadge = document.getElementById(
+    "entry-modal-vehicle-badge",
+  );
   const entryBrandInput = document.getElementById("entry-brand");
-  const entrySelectedBrandSummary = document.getElementById("entry-selected-brand-summary");
-  const entryBrandRegionsContainer = document.getElementById("entry-brand-regions");
+  const entrySelectedBrandSummary = document.getElementById(
+    "entry-selected-brand-summary",
+  );
+  const entryBrandRegionsContainer = document.getElementById(
+    "entry-brand-regions",
+  );
   const entryBrandListContainer = document.getElementById("entry-brand-list");
   const entryColorInput = document.getElementById("entry-color");
   const entryYearInput = document.getElementById("entry-year");
@@ -777,7 +810,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (entryIdBadge) {
       const hasValue = Boolean(
         (entryPlateInput && entryPlateInput.value.trim()) ||
-        (entryMvFileInput && entryMvFileInput.value.trim())
+        (entryMvFileInput && entryMvFileInput.value.trim()),
       );
       if (hasValue) {
         entryIdBadge.className =
@@ -792,7 +825,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (entryPlateInput) entryPlateInput.addEventListener("input", clearIdError);
-  if (entryMvFileInput) entryMvFileInput.addEventListener("input", clearIdError);
+  if (entryMvFileInput)
+    entryMvFileInput.addEventListener("input", clearIdError);
 
   let selectedBrandRegion = "Japanese";
   let selectedBrandName = "Toyota";
@@ -828,7 +862,10 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.addEventListener("click", () => {
         selectedBrandRegion = region;
         const regionBrands = brandMap[region] || [];
-        if (!regionBrands.includes(selectedBrandName) && regionBrands.length > 0) {
+        if (
+          !regionBrands.includes(selectedBrandName) &&
+          regionBrands.length > 0
+        ) {
           selectedBrandName = regionBrands[0];
         }
         renderBrandSelector();
@@ -910,7 +947,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && entryDetailsModal && !entryDetailsModal.classList.contains("hidden")) {
+    if (
+      e.key === "Escape" &&
+      entryDetailsModal &&
+      !entryDetailsModal.classList.contains("hidden")
+    ) {
       closeEntryDetailsModal();
     }
   });
@@ -931,9 +972,15 @@ document.addEventListener("DOMContentLoaded", () => {
           ? new Date(simEntryTime.value).toISOString()
           : new Date().toISOString();
 
-      const brand = (entryBrandInput && entryBrandInput.value) || selectedBrandName || "Toyota";
+      const brand =
+        (entryBrandInput && entryBrandInput.value) ||
+        selectedBrandName ||
+        "Toyota";
       const color = (entryColorInput && entryColorInput.value) || "White";
-      const yearVal = entryYearInput && entryYearInput.value ? parseInt(entryYearInput.value, 10) : 2024;
+      const yearVal =
+        entryYearInput && entryYearInput.value
+          ? parseInt(entryYearInput.value, 10)
+          : 2024;
       const plateNumber =
         entryPlateInput && entryPlateInput.value.trim()
           ? entryPlateInput.value.trim().toUpperCase()
@@ -988,14 +1035,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!res.ok) {
           if (entryDetailsError) {
-            entryDetailsError.textContent = data.error || "Unable to enter lot.";
+            entryDetailsError.textContent =
+              data.error || "Unable to enter lot.";
             entryDetailsError.classList.remove("hidden");
           } else {
             showToast(`! ${data.error || "Unable to enter lot."}`, true);
           }
         } else {
           closeEntryDetailsModal();
-          const schedule = getFeeSchedule(data.vehicleType || selectedVehicleType);
+          const schedule = getFeeSchedule(
+            data.vehicleType || selectedVehicleType,
+          );
           const remainingNote = data.isReservedMotorcycleSlot
             ? `, ${data.slotRemaining} of ${data.slotCapacity} remaining in slot`
             : "";
@@ -1082,7 +1132,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (coExitTime) coExitTime.textContent = "";
     if (coRateTier) {
       coRateTier.textContent = "-";
-      coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#e5e5ea] text-[#1d1d1f]";
+      coRateTier.className =
+        "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#e5e5ea] text-[#1d1d1f]";
     }
     if (coFeeNote) coFeeNote.textContent = "";
     if (cashInput) cashInput.value = "";
@@ -1106,7 +1157,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (modal) modal.classList.remove("hidden");
 
     // Fetch fee preview
-    const queryParts = [`vehicleType=${encodeURIComponent(currentVehicleType)}`];
+    const queryParts = [
+      `vehicleType=${encodeURIComponent(currentVehicleType)}`,
+    ];
     if (simExitTime && simExitTime.value) {
       queryParts.push(
         `exitTime=${encodeURIComponent(new Date(simExitTime.value).toISOString())}`,
@@ -1136,13 +1189,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (coRateTier) {
           if (data.status === "towed") {
             coRateTier.textContent = "Towed";
-            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700";
+            coRateTier.className =
+              "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700";
           } else if (data.isPeak) {
             coRateTier.textContent = "Peak Demand (1.5x)";
-            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800";
+            coRateTier.className =
+              "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800";
           } else {
             coRateTier.textContent = "Standard Rate";
-            coRateTier.className = "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700";
+            coRateTier.className =
+              "px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700";
           }
         }
 
@@ -1150,7 +1206,8 @@ document.addEventListener("DOMContentLoaded", () => {
           const peakBase = Math.round(activeSchedule.baseRate * 1.5);
           const peakHourly = Math.round(activeSchedule.hourlyRate * 1.5);
           if (data.status === "towed") {
-            coFeeNote.textContent = "Stay exceeded 24 hours. Vehicle impounded.";
+            coFeeNote.textContent =
+              "Stay exceeded 24 hours. Vehicle impounded.";
           } else if (data.isOvernight) {
             coFeeNote.textContent = `Includes ₱${activeSchedule.overnightSurcharge} overnight surcharge (${data.rateType})`;
           } else if (data.isPeak) {
@@ -1241,8 +1298,14 @@ document.addEventListener("DOMContentLoaded", () => {
       if (paymentError) paymentError.classList.add("hidden");
 
       const minAllowed = Math.min(50, currentFee > 0 ? currentFee : 50);
-      if (isNaN(amountReceived) || amountReceived < minAllowed || amountReceived > 1000) {
-        showPaymentError(`Please input any amount from ₱${minAllowed} to ₱1,000.`);
+      if (
+        isNaN(amountReceived) ||
+        amountReceived < minAllowed ||
+        amountReceived > 1000
+      ) {
+        showPaymentError(
+          `Please input any amount from ₱${minAllowed} to ₱1,000.`,
+        );
         return;
       }
 
@@ -1301,17 +1364,15 @@ document.addEventListener("DOMContentLoaded", () => {
               .sort(([a], [b]) => parseInt(b) - parseInt(a));
 
             const rows = entries
-              .map(
-                ([denom, count]) => {
-                  const denomNum = parseInt(denom, 10);
-                  const unitLabel = denomNum >= 20 ? 'bill' : 'coin';
-                  return `
+              .map(([denom, count]) => {
+                const denomNum = parseInt(denom, 10);
+                const unitLabel = denomNum >= 20 ? "bill" : "coin";
+                return `
                     <div class="flex justify-between py-1 border-b border-dashed border-emerald-200/50 last:border-0">
                       <span class="font-semibold text-[#1d1d1f]">₱${denom} ${unitLabel}</span>
                       <span class="text-[#6e6e73] font-medium">× ${count}</span>
                     </div>`;
-                }
-              )
+              })
               .join("");
 
             if (coBreakdown) {

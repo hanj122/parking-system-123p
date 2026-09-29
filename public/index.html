@@ -29,12 +29,12 @@
     <script>
       // Front page is strictly light-mode only
       try {
-        document.documentElement.classList.remove('dark');
-        document.documentElement.setAttribute('data-theme', 'light');
-        if (localStorage.getItem('parkwise_glass') === 'true') {
-          document.documentElement.classList.add('glass-effect');
+        document.documentElement.classList.remove("dark");
+        document.documentElement.setAttribute("data-theme", "light");
+        if (localStorage.getItem("parkwise_glass") === "true") {
+          document.documentElement.classList.add("glass-effect");
         } else {
-          document.documentElement.classList.remove('glass-effect');
+          document.documentElement.classList.remove("glass-effect");
         }
       } catch (e) {}
     </script>
