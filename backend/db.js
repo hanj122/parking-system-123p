@@ -3,13 +3,25 @@ try {
 } catch (e) {}
 
 const { Pool } = require("pg");
+const fs = require("fs");
+const path = require("path");
+
+const connectionString = process.env.DATABASE_URL;
+let sslConfig = false;
+if (connectionString) {
+  const isLocal =
+    connectionString.includes("localhost") ||
+    connectionString.includes("127.0.0.1");
+  const isSslDisabled = connectionString.includes("sslmode=disable");
+  if (!isLocal && !isSslDisabled) {
+    sslConfig = { rejectUnauthorized: false };
+  }
+}
 
 // Automatically connects to your Supabase DATABASE_URL from .env
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false, // Required for Supabase SSL connections
-  },
+  ssl: sslConfig,
 });
 
 const COMPAT_SQL = `
@@ -79,20 +91,80 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 `;
 
-// Test connection and provision compatibility functions on launch
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error("❌ Failed to connect to Supabase database:", err.message);
-  } else {
-    console.log("✅ Successfully connected to Supabase PostgreSQL database!");
-    client.query(COMPAT_SQL, (compatErr) => {
-      release();
-      if (compatErr) {
-        console.warn("Notice on compatibility functions:", compatErr.message);
-      }
-    });
+let initPromise = null;
+
+async function initDatabase() {
+  if (!process.env.DATABASE_URL) {
+    console.warn("\n========================================================================");
+    console.warn("⚠️  DATABASE_URL environment variable is NOT SET!");
+    console.warn("   If running on Render:");
+    console.warn("   1. Open Render Dashboard -> Your Web Service -> Environment");
+    console.warn("   2. Add Key: DATABASE_URL, Value: your Supabase / PostgreSQL URI");
+    console.warn("========================================================================\n");
+    return;
   }
-});
+
+  let client;
+  try {
+    client = await pool.connect();
+    console.log("✅ Successfully connected to Supabase PostgreSQL database!");
+
+    // 1. Provision compatibility functions
+    await client.query(COMPAT_SQL);
+
+    // 2. Provision database schema
+    const schemaPath = path.join(__dirname, "schema.sql");
+    if (fs.existsSync(schemaPath)) {
+      const schemaSql = fs.readFileSync(schemaPath, "utf8");
+      await client.query(schemaSql);
+      console.log("✅ Database schema verified (slots, tickets, reports, forecasts).");
+    }
+
+    // 3. Ensure slots table has 300 spaces
+    const slotsRes = await client.query("SELECT COUNT(*) AS count FROM slots;");
+    const slotCount = parseInt(slotsRes.rows[0].count, 10);
+    if (slotCount === 0) {
+      console.log("🌱 Slots table is empty. Initializing 300 parking spaces...");
+      for (let i = 100; i <= 399; i++) {
+        const floor = Math.floor(i / 100);
+        const isMc = floor === 1 && i >= 100 && i <= 119;
+        await client.query(
+          `INSERT INTO slots (id, floor, status, reserved_for, capacity)
+           VALUES ($1, $2, 'available', $3, $4)
+           ON CONFLICT (id) DO UPDATE SET
+             floor = EXCLUDED.floor,
+             reserved_for = EXCLUDED.reserved_for,
+             capacity = EXCLUDED.capacity;`,
+          [i, floor, isMc ? "motorcycle" : null, isMc ? 6 : 1]
+        );
+      }
+      console.log("✅ 300 slots initialized (Slots 100-119 reserved for motorcycles, capacity 6).");
+    }
+
+    // 4. Ensure tickets table has data
+    const ticketsRes = await client.query("SELECT COUNT(*) AS count FROM tickets;");
+    const ticketCount = parseInt(ticketsRes.rows[0].count, 10);
+    if (ticketCount === 0) {
+      console.log("🌱 Tickets table is empty. Auto-seeding synthetic operational data...");
+      try {
+        const { seedDataset } = require("../data/seed-supabase");
+        await seedDataset(client, { clearExisting: false });
+        console.log("✅ Database auto-seeded with 30-day realistic telemetry data!");
+      } catch (seedErr) {
+        console.error("⚠️ Auto-seeding notice:", seedErr.message);
+      }
+    } else {
+      console.log(`ℹ️ Operational data ready: ${ticketCount} tickets, ${slotCount || 300} slots.`);
+    }
+  } catch (err) {
+    console.error("❌ Database initialization error:", err.message);
+  } finally {
+    if (client) client.release();
+  }
+}
+
+// Trigger automatic initialization on launch
+initPromise = initDatabase();
 
 // Converts standard "?" positional placeholders to PostgreSQL "$1, $2, $3"
 function formatSql(sql) {
@@ -101,11 +173,29 @@ function formatSql(sql) {
 }
 
 const db = {
+  pool,
+  initPromise,
+  reseed: async (options = { clearExisting: true }) => {
+    const { seedDataset } = require("../data/seed-supabase");
+    return await seedDataset(pool, options);
+  },
+
   // Handles db.all(sql, params, callback)
-  all: (sql, params, callback) => {
+  all: async (sql, params, callback) => {
     if (typeof params === "function") {
       callback = params;
       params = [];
+    }
+    if (!process.env.DATABASE_URL) {
+      const err = new Error(
+        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment."
+      );
+      return callback ? callback(err) : null;
+    }
+    if (initPromise) {
+      try {
+        await initPromise;
+      } catch (e) {}
     }
     const query = formatSql(sql);
     pool.query(query, params || [], (err, res) => {
@@ -115,10 +205,21 @@ const db = {
   },
 
   // Handles db.get(sql, params, callback)
-  get: (sql, params, callback) => {
+  get: async (sql, params, callback) => {
     if (typeof params === "function") {
       callback = params;
       params = [];
+    }
+    if (!process.env.DATABASE_URL) {
+      const err = new Error(
+        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment."
+      );
+      return callback ? callback(err) : null;
+    }
+    if (initPromise) {
+      try {
+        await initPromise;
+      } catch (e) {}
     }
     const query = formatSql(sql);
     pool.query(query, params || [], (err, res) => {
@@ -128,10 +229,21 @@ const db = {
   },
 
   // Handles db.run(sql, params, callback) with this.lastID and this.changes support
-  run: (sql, params, callback) => {
+  run: async (sql, params, callback) => {
     if (typeof params === "function") {
       callback = params;
       params = [];
+    }
+    if (!process.env.DATABASE_URL) {
+      const err = new Error(
+        "DATABASE_URL is not set. Please configure DATABASE_URL in your Render Environment."
+      );
+      return callback ? callback(err) : null;
+    }
+    if (initPromise) {
+      try {
+        await initPromise;
+      } catch (e) {}
     }
     let query = formatSql(sql);
 

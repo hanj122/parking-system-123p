@@ -12,12 +12,27 @@
  * - Active parked vehicles snapshot for current live testing.
  */
 
+try {
+  require('dotenv').config();
+} catch (e) {}
+
 const { Pool } = require('pg');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+function getPool() {
+  const connectionString = process.env.DATABASE_URL;
+  let sslConfig = false;
+  if (connectionString) {
+    const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+    const isSslDisabled = connectionString.includes('sslmode=disable');
+    if (!isLocal && !isSslDisabled) {
+      sslConfig = { rejectUnauthorized: false };
+    }
+  }
+  return new Pool({
+    connectionString,
+    ssl: sslConfig
+  });
+}
 
 // Helper: Random number in range [min, max]
 function randInt(min, max) {
@@ -123,9 +138,26 @@ function calculateCashTender(fee) {
   };
 }
 
-async function seed() {
+async function seed(passedClientOrPool = null, options = {}) {
+  const { clearExisting = true } = options;
   console.log('🚀 Starting ParkWise Synthetic Telemetry Seeder for Supabase PostgreSQL...\n');
-  const client = await pool.connect();
+
+  let client;
+  let shouldRelease = false;
+  let tempPool = null;
+
+  if (passedClientOrPool && typeof passedClientOrPool.query === 'function') {
+    if (typeof passedClientOrPool.connect === 'function') {
+      client = await passedClientOrPool.connect();
+      shouldRelease = true;
+    } else {
+      client = passedClientOrPool;
+    }
+  } else {
+    tempPool = getPool();
+    client = await tempPool.connect();
+    shouldRelease = true;
+  }
 
   try {
     // 1. Ensure Slots table is initialized with 300 spaces
@@ -156,11 +188,13 @@ async function seed() {
     }
     console.log('   ✓ 300 slots initialized (Slots 100-119 reserved for motorcycles, capacity 6).\n');
 
-    // 2. Clear old demo tickets and reports
-    console.log('2. Preparing fresh telemetry tables...');
-    await client.query('DELETE FROM reports;');
-    await client.query('DELETE FROM tickets;');
-    console.log('   ✓ Cleaned existing tickets and reports.\n');
+    // 2. Clear old demo tickets and reports if requested
+    if (clearExisting) {
+      console.log('2. Preparing fresh telemetry tables...');
+      await client.query('DELETE FROM reports;');
+      await client.query('DELETE FROM tickets;');
+      console.log('   ✓ Cleaned existing tickets and reports.\n');
+    }
 
     // 3. Generate 30 Days of Historical Completed Parking Sessions
     console.log('3. Synthesizing 30-day realistic diurnal traffic patterns...');
@@ -371,16 +405,35 @@ async function seed() {
     console.log(`   • Operational incident telemetry and audit logs generated.`);
     console.log('================================================================');
 
+    return {
+      slots: 300,
+      historicalTickets: completedCount,
+      activeTickets: allActive.length,
+      totalRevenue
+    };
   } catch (err) {
     console.error('❌ Seeding failed:', err);
     throw err;
   } finally {
-    client.release();
-    await pool.end();
+    if (shouldRelease && client) {
+      try { client.release(); } catch (e) {}
+    }
+    if (tempPool) {
+      try { await tempPool.end(); } catch (e) {}
+    }
   }
 }
 
-seed().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  seed(null, { clearExisting: true })
+    .then((stats) => {
+      console.log('Seed finished successfully:', stats);
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+
+module.exports = { seed, seedDataset: seed };

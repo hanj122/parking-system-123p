@@ -1509,7 +1509,72 @@ app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
   );
 });
 
+// Diagnostic and health endpoint for production environments like Render
+app.get("/api/health", (req, res) => {
+  const hasDbUrl = Boolean(process.env.DATABASE_URL);
+  if (!hasDbUrl) {
+    return res.status(503).json({
+      status: "error",
+      databaseConnected: false,
+      message: "DATABASE_URL environment variable is not configured.",
+      renderHint: "Add DATABASE_URL in Render Dashboard -> Web Service -> Environment.",
+    });
+  }
+
+  db.all(
+    `SELECT
+       (SELECT COUNT(*) FROM slots) AS slots_count,
+       (SELECT COUNT(*) FROM tickets) AS tickets_count,
+       (SELECT COUNT(*) FROM tickets WHERE status = 'active') AS active_tickets_count,
+       (SELECT COUNT(*) FROM reports) AS reports_count`,
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({
+          status: "error",
+          databaseConnected: false,
+          error: err.message,
+        });
+      }
+      const counts = rows && rows[0] ? rows[0] : {};
+      res.json({
+        status: "ok",
+        databaseConnected: true,
+        counts: {
+          slots: Number(counts.slots_count || 0),
+          tickets: Number(counts.tickets_count || 0),
+          activeTickets: Number(counts.active_tickets_count || 0),
+          reports: Number(counts.reports_count || 0),
+        },
+      });
+    }
+  );
+});
+
+// On-demand database seeding endpoint (accessible via GET in browser or POST)
+app.all("/api/seed", async (req, res) => {
+  if (!process.env.DATABASE_URL) {
+    return res.status(503).json({
+      success: false,
+      error: "DATABASE_URL is not configured. Please set DATABASE_URL in your Render Environment variables.",
+    });
+  }
+
+  try {
+    console.log("🌱 Manual re-seed requested via /api/seed...");
+    const stats = await db.reseed({ clearExisting: true });
+    res.json({
+      success: true,
+      message: "Database successfully populated with 300 parking spaces and 30-day synthetic telemetry.",
+      stats,
+    });
+  } catch (err) {
+    console.error("❌ Seed endpoint error:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
