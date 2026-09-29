@@ -206,7 +206,8 @@
               </div>
               <div
                 id="ticket-map"
-                class="h-52 rounded-apple-xl overflow-hidden border border-black/5 bg-[#f5f5f7]"
+                class="h-52 rounded-apple-xl overflow-hidden border border-black/5 bg-[#f5f5f7] relative"
+                style="isolation: isolate; z-index: 0"
               ></div>
             </div>
           </div>
@@ -294,7 +295,8 @@
   ══════════════════════════════════════════════════════════ -->
     <div
       id="exit-modal"
-      class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto"
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[99999] p-4 overflow-y-auto"
+      style="z-index: 99999"
     >
       <div
         class="modal-enter bg-white rounded-apple-2xl w-full max-w-md p-6 sm:p-8 flex flex-col gap-5 shadow-2xl my-auto"
@@ -406,6 +408,15 @@
           <p class="text-sm sm:text-[15px] font-bold text-emerald-700">
             ✓ Payment Successful
           </p>
+          <div
+            class="py-1.5 px-3 rounded-apple-md bg-white/80 border border-emerald-200/60 flex items-center justify-between text-xs sm:text-sm"
+          >
+            <span class="text-[#6e6e73] font-medium">Assigned Space:</span>
+            <span class="font-bold text-[#1d1d1f]"
+              >Slot <span id="co-receipt-slot">—</span> · Floor
+              <span id="co-receipt-floor">—</span></span
+            >
+          </div>
           <p
             class="text-[#6e6e73] text-xs uppercase tracking-widest font-semibold mt-1"
           >

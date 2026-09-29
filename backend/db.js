@@ -15,24 +15,10 @@ function initDb() {
       return;
     }
 
-    db.run(
-      `INSERT INTO demand_forecasts
-              (nature, event_date, event_time, category)
-             SELECT nature, event_date, event_time, category
-             FROM forecast_events old
-             WHERE NOT EXISTS (
-               SELECT 1 FROM demand_forecasts current
-               WHERE current.nature = old.nature
-                 AND current.event_date = old.event_date
-                 AND current.event_time = old.event_time
-                 AND current.category = old.category
-             )`,
-      (migrationError) => {
-        if (migrationError)
-          console.error("Forecast migration failed", migrationError);
-      },
-    );
+    // Enable foreign keys
+    db.run("PRAGMA foreign_keys = ON");
 
+    // Migration for tickets columns
     for (const column of ["map_latitude", "map_longitude"]) {
       db.run(`ALTER TABLE tickets ADD COLUMN ${column} REAL`, (columnError) => {
         if (
@@ -46,6 +32,52 @@ function initDb() {
         }
       });
     }
+
+    // Migration for demand_forecasts columns
+    db.run(
+      `ALTER TABLE demand_forecasts ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`,
+      () => {
+        db.run(
+          `ALTER TABLE demand_forecasts ADD COLUMN external_id TEXT`,
+          () => {
+            db.run(
+              `CREATE UNIQUE INDEX IF NOT EXISTS idx_forecast_dedup ON demand_forecasts(source, external_id)`,
+              (indexErr) => {
+                if (indexErr) {
+                  console.error(
+                    "Failed to create forecast dedup index:",
+                    indexErr.message,
+                  );
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+
+    // Migration for lot_location radius_km column
+    db.run(
+      "ALTER TABLE lot_location ADD COLUMN radius_km REAL NOT NULL DEFAULT 3.0",
+      (radErr) => {
+        if (radErr && !radErr.message.includes("duplicate column name")) {
+          // ignore already existing column
+        }
+      },
+    );
+
+    // Initialize default lot location if not already present
+    db.get("SELECT COUNT(*) AS count FROM lot_location", (err, row) => {
+      if (!err && row && row.count === 0) {
+        db.run(
+          "INSERT OR IGNORE INTO lot_location (id, latitude, longitude, radius_km) VALUES (1, 14.5995, 120.9842, 3.0)",
+          (insErr) => {
+            if (insErr)
+              console.error("Failed to seed default lot location:", insErr);
+          },
+        );
+      }
+    });
 
     // Check if slots are initialized
     db.get("SELECT COUNT(*) as count FROM slots", (err, row) => {

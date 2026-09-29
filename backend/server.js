@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const db = require("./db");
+const { syncAllForecasts } = require("./forecastSync");
 
 const app = express();
 app.use(cors());
@@ -31,21 +32,28 @@ app.get("/admin-dashboard", (req, res) => {
   res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
 app.get("/reports", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/reports.html"));
+  res.sendFile(path.join(__dirname, "../public/dashboard.html"));
 });
+
+// Great-circle / Haversine distance in kilometers
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 // Helper to check if a number can be formed by 20, 50, 100, 500, 1000
 function isValidPaymentAmount(amount) {
   if (amount <= 0 || !Number.isInteger(amount)) return false;
-
-  // Since 100, 500, 1000 are multiples of 20 and 50 (wait, 100=50x2, 500=50x10, 1000=50x20),
-  // any combination of these bills can be reduced to just combinations of 20 and 50.
-  // We just need to check if amount can be written as 20x + 50y.
-
-  // Valid amounts for 20x + 50y:
   if (amount === 10 || amount === 30) return false;
-  // For anything else, if it's a multiple of 10, we can always form it (40, 50, 60, 70, 80...).
-  // Wait, are there any other constraints? Only multiples of 10.
   return amount % 10 === 0;
 }
 
@@ -130,15 +138,72 @@ function logReport(type, message, options = {}) {
   );
 }
 
+// GET /api/slots - Get all slots with floor and current status
+app.get("/api/slots", (req, res) => {
+  db.all(
+    "SELECT id, floor, status FROM slots ORDER BY floor ASC, id ASC",
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows || []);
+    },
+  );
+});
+
+// POST /api/slots/:id/reopen - Reopen a closed slot
+app.post("/api/slots/:id/reopen", (req, res) => {
+  const slotId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(slotId) || slotId <= 0) {
+    return res.status(400).json({ error: "A valid slot id is required." });
+  }
+
+  db.get(
+    "SELECT id FROM tickets WHERE slot_id = ? AND status = 'active'",
+    [slotId],
+    (err, activeTicket) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const newStatus = activeTicket ? "occupied" : "available";
+      db.run(
+        "UPDATE slots SET status = ? WHERE id = ?",
+        [newStatus, slotId],
+        function (updateErr) {
+          if (updateErr) {
+            return res.status(500).json({ error: updateErr.message });
+          }
+          if (this.changes === 0) {
+            return res.status(404).json({ error: "Slot not found." });
+          }
+
+          logReport(
+            "slot_reopened",
+            `Slot ${slotId} reopened by administrator`,
+            {
+              severity: "info",
+              slotId,
+            },
+          );
+
+          res.json({
+            success: true,
+            slotId,
+            status: newStatus,
+            message: `Slot ${slotId} is now reopened (${newStatus}).`,
+          });
+        },
+      );
+    },
+  );
+});
+
 // GET /api/status - Get floor capacities and active tickets
 app.get("/api/status", (req, res) => {
   db.serialize(() => {
-    // Keep slots table status strictly synchronized with active tickets
+    // Keep slots table status strictly synchronized with active tickets without overwriting closed slots
     db.run(
-      "UPDATE slots SET status = 'available' WHERE id NOT IN (SELECT slot_id FROM tickets WHERE status = 'active')"
+      "UPDATE slots SET status = 'available' WHERE status != 'closed' AND id NOT IN (SELECT slot_id FROM tickets WHERE status = 'active')",
     );
     db.run(
-      "UPDATE slots SET status = 'occupied' WHERE id IN (SELECT slot_id FROM tickets WHERE status = 'active')"
+      "UPDATE slots SET status = 'occupied' WHERE status != 'closed' AND id IN (SELECT slot_id FROM tickets WHERE status = 'active')",
     );
 
     const query = `
@@ -177,7 +242,7 @@ app.get("/api/status", (req, res) => {
 
 // POST /api/entry - Assign slot and create ticket
 app.post("/api/entry", (req, res) => {
-  // Fill floor 1 first, then 2, then 3
+  // Fill floor 1 first, then 2, then 3; skips closed and occupied slots
   db.get(
     "SELECT id, floor FROM slots WHERE status = 'available' ORDER BY floor ASC, id ASC LIMIT 1",
     (err, slot) => {
@@ -363,8 +428,7 @@ app.post("/api/exit", (req, res) => {
   );
 });
 
-// GET /api/kpis
-// Dashboard KPI data
+// GET /api/kpis - Dashboard KPI data
 app.get("/api/kpis", (req, res) => {
   const totalSpacesQuery = `
     SELECT COUNT(*) AS total_spaces
@@ -400,39 +464,27 @@ app.get("/api/kpis", (req, res) => {
 
         const totalSpaces = Number(spacesRow.total_spaces || 0);
         const totalRevenue = Number(revenueRow.total_revenue || 0);
-        const completedSessions = Number(
-          turnoverRow.completed_sessions || 0
-        );
+        const completedSessions = Number(turnoverRow.completed_sessions || 0);
 
         const revenuePerAvailableSpace =
-          totalSpaces > 0
-            ? totalRevenue / totalSpaces
-            : 0;
+          totalSpaces > 0 ? totalRevenue / totalSpaces : 0;
 
         const turnoverRate =
-          totalSpaces > 0
-            ? completedSessions / totalSpaces
-            : 0;
+          totalSpaces > 0 ? completedSessions / totalSpaces : 0;
 
         res.json({
           totalSpaces,
           totalRevenue,
           completedSessions,
-
-          revenuePerAvailableSpace: Number(
-            revenuePerAvailableSpace.toFixed(2)
-          ),
-
-          turnoverRate: Number(
-            turnoverRate.toFixed(2)
-          )
+          revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
+          turnoverRate: Number(turnoverRate.toFixed(2)),
         });
       });
     });
   });
 });
+
 // GET /api/analytics/turnover and /api/revenue-per-space
-// Detailed turnover and revenue information
 app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
   const date = req.query.date;
 
@@ -463,7 +515,7 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
   db.all(query, params, (err, rows) => {
     if (err) {
       return res.status(500).json({
-        error: err.message
+        error: err.message,
       });
     }
 
@@ -472,16 +524,10 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
       const exit = new Date(row.exit_time);
 
       const durationMs = exit - entry;
-
-      const durationMinutes = Math.max(
-        0,
-        Math.round(durationMs / 60000)
-      );
-
+      const durationMinutes = Math.max(0, Math.round(durationMs / 60000));
       const durationHours = durationMinutes / 60;
 
       let turnoverLevel;
-
       if (durationHours <= 2) {
         turnoverLevel = "HIGH";
       } else if (durationHours <= 4) {
@@ -498,7 +544,7 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
         fee: Number(row.fee || 0),
         durationMinutes,
         durationHours: Number(durationHours.toFixed(2)),
-        turnoverLevel
+        turnoverLevel,
       };
     });
 
@@ -510,30 +556,19 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
     db.get(totalSpacesQuery, (spaceErr, spaceRow) => {
       if (spaceErr) {
         return res.status(500).json({
-          error: spaceErr.message
+          error: spaceErr.message,
         });
       }
 
-      const totalSpaces = Number(
-        spaceRow.total_spaces || 0
-      );
-
+      const totalSpaces = Number(spaceRow.total_spaces || 0);
       const totalRevenue = vehicles.reduce(
         (sum, vehicle) => sum + vehicle.fee,
-        0
+        0,
       );
-
       const totalVehicles = vehicles.length;
-
       const revenuePerAvailableSpace =
-        totalSpaces > 0
-          ? totalRevenue / totalSpaces
-          : 0;
-
-      const turnoverRate =
-        totalSpaces > 0
-          ? totalVehicles / totalSpaces
-          : 0;
+        totalSpaces > 0 ? totalRevenue / totalSpaces : 0;
+      const turnoverRate = totalSpaces > 0 ? totalVehicles / totalSpaces : 0;
 
       // Group vehicles by parking space
       const spaceMap = {};
@@ -544,15 +579,12 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
             slotId: vehicle.slotId,
             vehicleCount: 0,
             totalRevenue: 0,
-            totalDurationMinutes: 0
+            totalDurationMinutes: 0,
           };
         }
 
         spaceMap[vehicle.slotId].vehicleCount += 1;
-
-        spaceMap[vehicle.slotId].totalRevenue +=
-          vehicle.fee;
-
+        spaceMap[vehicle.slotId].totalRevenue += vehicle.fee;
         spaceMap[vehicle.slotId].totalDurationMinutes +=
           vehicle.durationMinutes;
       });
@@ -560,15 +592,11 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
       const spaces = Object.values(spaceMap).map((space) => {
         const averageDurationMinutes =
           space.vehicleCount > 0
-            ? space.totalDurationMinutes /
-              space.vehicleCount
+            ? space.totalDurationMinutes / space.vehicleCount
             : 0;
-
-        const averageDurationHours =
-          averageDurationMinutes / 60;
+        const averageDurationHours = averageDurationMinutes / 60;
 
         let turnoverLevel;
-
         if (averageDurationHours <= 2) {
           turnoverLevel = "HIGH";
         } else if (averageDurationHours <= 4) {
@@ -579,54 +607,91 @@ app.get(["/api/analytics/turnover", "/api/revenue-per-space"], (req, res) => {
 
         return {
           slotId: space.slotId,
-
           vehicleCount: space.vehicleCount,
-
-          totalRevenue: Number(
-            space.totalRevenue.toFixed(2)
-          ),
-
-          averageDurationMinutes: Math.round(
-            averageDurationMinutes
-          ),
-
-          averageDurationHours: Number(
-            averageDurationHours.toFixed(2)
-          ),
-
-          turnoverLevel
+          totalRevenue: Number(space.totalRevenue.toFixed(2)),
+          averageDurationMinutes: Math.round(averageDurationMinutes),
+          averageDurationHours: Number(averageDurationHours.toFixed(2)),
+          turnoverLevel,
         };
       });
 
       res.json({
         totalSpaces,
         totalVehicles,
-        totalRevenue: Number(
-          totalRevenue.toFixed(2)
-        ),
-        revenuePerAvailableSpace: Number(
-          revenuePerAvailableSpace.toFixed(2)
-        ),
-        turnoverRate: Number(
-          turnoverRate.toFixed(2)
-        ),
+        totalRevenue: Number(totalRevenue.toFixed(2)),
+        revenuePerAvailableSpace: Number(revenuePerAvailableSpace.toFixed(2)),
+        turnoverRate: Number(turnoverRate.toFixed(2)),
         spaces,
-        vehicles
+        vehicles,
       });
     });
   });
 });
 
+// GET /api/reports - Paginated incident reports with multi-slot closure info
 app.get("/api/reports", (req, res) => {
-  db.all(
-    `SELECT * FROM reports
-     ORDER BY created_at DESC
-     LIMIT 50`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    },
-  );
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10));
+  const offset = (page - 1) * limit;
+
+  db.get("SELECT COUNT(*) AS total FROM reports", (countErr, countRow) => {
+    if (countErr) return res.status(500).json({ error: countErr.message });
+
+    const total = countRow ? countRow.total : 0;
+    const totalPages = Math.ceil(total / limit);
+
+    db.all(
+      `SELECT r.*, GROUP_CONCAT(rs.slot_id) AS closed_slots_raw
+       FROM reports r
+       LEFT JOIN report_slots rs ON r.id = rs.report_id
+       GROUP BY r.id
+       ORDER BY r.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset],
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        db.all("SELECT id, status FROM slots", (slotErr, allSlots) => {
+          const slotStatusMap = {};
+          if (allSlots) {
+            allSlots.forEach((s) => {
+              slotStatusMap[s.id] = s.status;
+            });
+          }
+
+          const reports = (rows || []).map((row) => {
+            const raw = row.closed_slots_raw;
+            const slotIds = raw
+              ? raw
+                  .split(",")
+                  .map((s) => Number.parseInt(s.trim(), 10))
+                  .filter((n) => Number.isInteger(n))
+              : [];
+
+            const closedSlots = slotIds.map((id) => ({
+              id,
+              status: slotStatusMap[id] || "unknown",
+            }));
+
+            const { closed_slots_raw, ...reportData } = row;
+            return {
+              ...reportData,
+              slotIds,
+              closedSlots,
+            };
+          });
+
+          res.json({
+            reports,
+            page,
+            limit,
+            total,
+            totalPages,
+          });
+        });
+      },
+    );
+  });
 });
 
 // DELETE /api/reports/:id - Remove a report ticket
@@ -651,11 +716,16 @@ app.delete("/api/reports/:id", (req, res) => {
   });
 });
 
-// POST /api/reports - Create a manual admin parking lot report
+// POST /api/reports - Create a manual admin parking lot report with multi-slot selection & closure
 app.post("/api/reports", (req, res) => {
-  const { type, severity = "info", message, floor = null } = req.body;
+  const {
+    type,
+    severity = "info",
+    message,
+    floor = null,
+    slotIds = [],
+  } = req.body;
 
-  // Validate report type
   const allowedTypes = [
     "Maintenance",
     "Equipment Issue",
@@ -674,16 +744,13 @@ app.post("/api/reports", (req, res) => {
     });
   }
 
-  // Validate severity
   const allowedSeverities = ["info", "warning", "critical"];
-
   if (!allowedSeverities.includes(severity)) {
     return res.status(400).json({
       error: "Invalid severity. Use info, warning, or critical.",
     });
   }
 
-  // Validate message
   if (!message || typeof message !== "string" || !message.trim()) {
     return res.status(400).json({
       error: "Report message is required.",
@@ -696,17 +763,102 @@ app.post("/api/reports", (req, res) => {
     });
   }
 
-  // Validate floor
   let normalizedFloor = null;
-
   if (floor !== null && floor !== "" && floor !== undefined) {
     normalizedFloor = Number(floor);
-
     if (![1, 2, 3].includes(normalizedFloor)) {
       return res.status(400).json({
         error: "Floor must be 1, 2, or 3.",
       });
     }
+  }
+
+  // Parse and validate required slot IDs / range
+  let rawSlots = [];
+  if (typeof slotIds === "string") {
+    const parts = slotIds.split(/[,;\s]+/).filter(Boolean);
+    for (const part of parts) {
+      if (part.includes("-")) {
+        const range = part.split("-");
+        if (range.length !== 2) {
+          return res.status(400).json({
+            error: `Invalid slot range format: '${part}'. Use format like 101-105.`,
+          });
+        }
+        const start = Number.parseInt(range[0].trim(), 10);
+        const end = Number.parseInt(range[1].trim(), 10);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) {
+          return res.status(400).json({
+            error: `Invalid slot range '${part}'. Both values must be numbers.`,
+          });
+        }
+        if (start < 100 || start > 399) {
+          return res.status(400).json({
+            error: `Slot ${start} is outside the valid parking slot range (100–399).`,
+          });
+        }
+        if (end < 100 || end > 399) {
+          return res.status(400).json({
+            error: `Slot ${end} is outside the valid parking slot range (100–399).`,
+          });
+        }
+        if (start > end) {
+          return res.status(400).json({
+            error: `Invalid slot range '${part}': start slot (${start}) cannot be greater than end slot (${end}).`,
+          });
+        }
+        if (end - start > 50) {
+          return res.status(400).json({
+            error: `Slot range is too large (${start} to ${end}). Maximum 50 slots per report.`,
+          });
+        }
+        for (let s = start; s <= end; s++) {
+          rawSlots.push(s);
+        }
+      } else {
+        const num = Number.parseInt(part.trim(), 10);
+        if (!Number.isInteger(num)) {
+          return res.status(400).json({
+            error: `'${part}' is not a valid slot number.`,
+          });
+        }
+        if (num < 100 || num > 399) {
+          return res.status(400).json({
+            error: `Slot ${num} is outside the valid parking slot range (100–399).`,
+          });
+        }
+        rawSlots.push(num);
+      }
+    }
+  } else if (Array.isArray(slotIds)) {
+    for (const item of slotIds) {
+      const num = Number.parseInt(item, 10);
+      if (!Number.isInteger(num)) {
+        return res.status(400).json({
+          error: `'${item}' is not a valid slot number.`,
+        });
+      }
+      if (num < 100 || num > 399) {
+        return res.status(400).json({
+          error: `Slot ${num} is outside the valid parking slot range (100–399).`,
+        });
+      }
+      rawSlots.push(num);
+    }
+  }
+
+  const validatedSlotIds = Array.from(new Set(rawSlots)).sort((a, b) => a - b);
+
+  if (validatedSlotIds.length === 0) {
+    return res.status(400).json({
+      error:
+        "Affected slot is required. Please specify a slot number or range between 100 and 399 (e.g. 105 or 101-105).",
+    });
+  }
+
+  // Automatically determine floor from first slot if not explicitly provided
+  if (!normalizedFloor && validatedSlotIds.length > 0) {
+    normalizedFloor = Math.floor(validatedSlotIds[0] / 100);
   }
 
   const cleanMessage = message.trim();
@@ -719,15 +871,36 @@ app.post("/api/reports", (req, res) => {
     function (err) {
       if (err) {
         console.error("Failed to create report:", err.message);
-
         return res.status(500).json({
           error: "Failed to create parking lot report.",
         });
       }
 
+      const reportId = this.lastID;
+
+      // Close selected slots and register in report_slots
+      if (validatedSlotIds.length > 0) {
+        db.serialize(() => {
+          const insertJoinStmt = db.prepare(
+            "INSERT OR IGNORE INTO report_slots (report_id, slot_id) VALUES (?, ?)",
+          );
+          const updateSlotStmt = db.prepare(
+            "UPDATE slots SET status = 'closed' WHERE id = ?",
+          );
+
+          validatedSlotIds.forEach((sId) => {
+            insertJoinStmt.run(reportId, sId);
+            updateSlotStmt.run(sId);
+          });
+
+          insertJoinStmt.finalize();
+          updateSlotStmt.finalize();
+        });
+      }
+
       db.get(
         "SELECT * FROM reports WHERE id = ?",
-        [this.lastID],
+        [reportId],
         (selectErr, report) => {
           if (selectErr) {
             return res.status(500).json({
@@ -737,7 +910,10 @@ app.post("/api/reports", (req, res) => {
 
           res.status(201).json({
             success: true,
-            report,
+            report: {
+              ...report,
+              slotIds: validatedSlotIds,
+            },
           });
         },
       );
@@ -745,17 +921,136 @@ app.post("/api/reports", (req, res) => {
   );
 });
 
-// GET /api/demand-forecasts - List saved demand forecast events
+// GET /api/lot-location - Retrieve saved parking lot pin coordinates & radius
+app.get("/api/lot-location", (req, res) => {
+  db.get(
+    "SELECT id, latitude, longitude, COALESCE(radius_km, 3.0) AS radius_km, updated_at FROM lot_location WHERE id = 1",
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!row) {
+        return res.json({
+          id: 1,
+          latitude: 14.5995,
+          longitude: 120.9842,
+          radius_km: 3.0,
+          updated_at: new Date().toISOString(),
+        });
+      }
+      res.json(row);
+    },
+  );
+});
+
+// PUT /api/lot-location - Set or update saved parking lot pin coordinates & dynamic radius
+app.put("/api/lot-location", (req, res) => {
+  const { latitude, longitude, radius_km, radiusKm } = req.body;
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  const rawRadius = radius_km !== undefined ? radius_km : radiusKm;
+  const rad = rawRadius !== undefined ? Number(rawRadius) : 3.0;
+
+  if (
+    !Number.isFinite(lat) ||
+    lat < 14.3 ||
+    lat > 14.9 ||
+    !Number.isFinite(lng) ||
+    lng < 120.8 ||
+    lng > 121.3
+  ) {
+    return res.status(400).json({
+      error:
+        "Parking lot location must be within Metro Manila bounds (Lat: 14.3-14.9, Lng: 120.8-121.3).",
+    });
+  }
+
+  if (!Number.isFinite(rad) || rad < 0.5 || rad > 30) {
+    return res.status(400).json({
+      error: "Radius must be a valid number between 0.5 km and 30 km.",
+    });
+  }
+
+  db.run(
+    "INSERT INTO lot_location (id, latitude, longitude, radius_km, updated_at) VALUES (1, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET latitude = excluded.latitude, longitude = excluded.longitude, radius_km = excluded.radius_km, updated_at = CURRENT_TIMESTAMP",
+    [lat, lng, rad],
+    function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      db.get(
+        "SELECT id, latitude, longitude, COALESCE(radius_km, 3.0) AS radius_km, updated_at FROM lot_location WHERE id = 1",
+        (getErr, row) => {
+          if (getErr) return res.status(500).json({ error: getErr.message });
+          res.json({
+            success: true,
+            location: row,
+          });
+        },
+      );
+    },
+  );
+});
+
+// GET /api/demand-forecasts - List saved demand forecast events with dynamic nearby radius filter
 app.get(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
+  const isNearbyFilter =
+    req.query.nearby === "true" || req.query.nearby === "1";
+
   db.all(
     `SELECT * FROM demand_forecasts
      ORDER BY event_date ASC, event_time ASC
-     LIMIT 100`,
+     LIMIT 200`,
     (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
+
+      if (!isNearbyFilter) {
+        return res.json(rows || []);
+      }
+
+      db.get(
+        "SELECT latitude, longitude, COALESCE(radius_km, 3.0) AS radius_km FROM lot_location WHERE id = 1",
+        (locErr, lotLoc) => {
+          if (locErr || !lotLoc) {
+            return res.json(rows || []);
+          }
+
+          const maxDist = Number(lotLoc.radius_km) || 3.0;
+
+          const filtered = (rows || []).filter((event) => {
+            if (event.latitude == null || event.longitude == null) {
+              return true; // Nationwide or non-localized forecasts stay visible
+            }
+            const dist = haversineDistanceKm(
+              lotLoc.latitude,
+              lotLoc.longitude,
+              event.latitude,
+              event.longitude,
+            );
+            event.distanceKm = Number(dist.toFixed(2));
+            return dist <= maxDist;
+          });
+
+          res.json(filtered);
+        },
+      );
     },
   );
+});
+
+// POST /api/demand-forecasts/sync - Manual Sync Now trigger for demand forecasting
+app.post("/api/demand-forecasts/sync", async (req, res) => {
+  try {
+    const result = await syncAllForecasts(db);
+    res.json({
+      success: true,
+      message: "Demand forecast sync completed successfully.",
+      result,
+    });
+  } catch (err) {
+    console.error("Manual forecast sync failed:", err);
+    res.status(500).json({
+      error: "Failed to synchronize forecasts: " + err.message,
+    });
+  }
 });
 
 // DELETE /api/demand-forecasts/:id - Remove a saved forecast event
@@ -784,7 +1079,7 @@ app.delete(["/api/demand-forecasts/:id", "/api/forecasts/:id"], (req, res) => {
 app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
   const { nature, date, time, category, location, latitude, longitude } =
     req.body;
-  const allowedCategories = ["Concert", "Sports", "Holiday", "Market", "Other"];
+  const allowedCategories = ["Concert", "Sports", "Market", "Other"];
 
   if (!nature || typeof nature !== "string" || !nature.trim()) {
     return res.status(400).json({ error: "Event nature is required." });
@@ -836,8 +1131,8 @@ app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
 
   db.run(
     `INSERT INTO demand_forecasts
-      (nature, event_date, event_time, category, location, latitude, longitude)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (nature, event_date, event_time, category, location, latitude, longitude, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'manual')`,
     [
       nature.trim(),
       date,
@@ -865,6 +1160,13 @@ app.post(["/api/demand-forecasts", "/api/forecasts"], (req, res) => {
     },
   );
 });
+
+// Initial automated forecast sync on startup
+setTimeout(() => {
+  syncAllForecasts(db).catch((e) =>
+    console.error("Startup forecast sync notice:", e.message),
+  );
+}, 1500);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

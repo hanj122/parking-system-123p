@@ -23,6 +23,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const paymentError = document.getElementById("payment-error");
   const paymentSection = document.getElementById("payment-section");
   const receiptSection = document.getElementById("receipt-section");
+  const coReceiptSlot = document.getElementById("co-receipt-slot");
+  const coReceiptFloor = document.getElementById("co-receipt-floor");
   const coChange = document.getElementById("co-change");
   const coBreakdown = document.getElementById("co-breakdown");
   const btnCancel = document.getElementById("btn-cancel");
@@ -45,28 +47,101 @@ document.addEventListener("DOMContentLoaded", () => {
 
   initializeTicketMap();
 
+  let lotPin = null;
+  let lotCircle = null;
+
   async function initializeTicketMap() {
     if (!ticketMapElement) return;
 
     try {
       if (!window.L) throw new Error("Leaflet failed to load");
-      ticketMap = L.map(ticketMapElement).setView([14.5995, 120.9842], 11);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors",
+
+      // Fetch admin saved lot location
+      let lotLat = 14.5995;
+      let lotLng = 120.9842;
+      let lotRadius = 3.0;
+      try {
+        const locRes = await fetch("/api/lot-location");
+        if (locRes.ok) {
+          const locData = await locRes.json();
+          if (locData && locData.latitude && locData.longitude) {
+            lotLat = locData.latitude;
+            lotLng = locData.longitude;
+            if (locData.radius_km) lotRadius = Number(locData.radius_km);
+          }
+        }
+      } catch (e) {
+        console.warn("Could not fetch lot location for demo map:", e);
+      }
+
+      ticketMap = L.map(ticketMapElement).setView([lotLat, lotLng], 13);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
+        maxZoom: 19,
       }).addTo(ticketMap);
+
+      // Render Admin Lot Location Marker & Dynamic radius circle
+      const lotIcon = L.divIcon({
+        className: "custom-lot-pin",
+        html: `<div style="display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:#0071e3;color:white;box-shadow:0 3px 12px rgba(0,0,0,0.4);border:2.5px solid white;"><svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'></path><circle cx='12' cy='10' r='3'></circle></svg></div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 34],
+        popupAnchor: [0, -34],
+      });
+
+      lotPin = L.marker([lotLat, lotLng], {
+        icon: lotIcon,
+        title: "ParkWise Lot Location",
+      })
+        .addTo(ticketMap)
+        .bindPopup(
+          `<b>ParkWise Lot Location</b><br>${lotRadius.toFixed(1)} km Forecast Radius`,
+        );
+
+      lotCircle = L.circle([lotLat, lotLng], {
+        radius: lotRadius * 1000,
+        color: "#34c759",
+        fillColor: "#34c759",
+        fillOpacity: 0.15,
+        weight: 2,
+      }).addTo(ticketMap);
+
+      if (ticketMapStatus) {
+        ticketMapStatus.textContent = `Synced with Lot Location (${lotRadius.toFixed(1)}km Radius)`;
+      }
+
+      const vehicleIcon = L.divIcon({
+        className: "custom-vehicle-pin",
+        html: `<div style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:#ff9500;color:white;box-shadow:0 2px 8px rgba(0,0,0,0.3);border:2px solid white;"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'></circle><polygon points='16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76'></polygon></svg></div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      });
+
       ticketMap.on("click", (event) => {
         ticketMapLocation = {
           latitude: event.latlng.lat,
           longitude: event.latlng.lng,
         };
         if (!ticketMarker) {
-          ticketMarker = L.marker(event.latlng).addTo(ticketMap);
+          ticketMarker = L.marker(event.latlng, {
+            icon: vehicleIcon,
+            opacity: 0.95,
+          }).addTo(ticketMap);
         } else {
           ticketMarker.setLatLng(event.latlng);
         }
-        if (ticketMapStatus) ticketMapStatus.textContent = "Location pinned";
+        if (ticketMapStatus)
+          ticketMapStatus.textContent = "Vehicle Origin Pinned";
       });
-      setTimeout(() => ticketMap.invalidateSize(), 50);
+
+      if (window.ResizeObserver && ticketMapElement) {
+        new ResizeObserver(() => {
+          if (ticketMap) ticketMap.invalidateSize();
+        }).observe(ticketMapElement);
+      }
+
+      setTimeout(() => ticketMap.invalidateSize(), 150);
     } catch (error) {
       console.error("Ticket map failed to load:", error);
       ticketMapElement.innerHTML =
@@ -74,9 +149,49 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  // ── Sync Demo Lot Location with Admin Updates ───────────────────────────
+  let lastSyncedRadius = 3.0;
+  async function syncDemoLotLocation() {
+    if (!ticketMap || !lotPin || !lotCircle) return;
+    try {
+      const locRes = await fetch("/api/lot-location");
+      if (locRes.ok) {
+        const locData = await locRes.json();
+        if (locData && locData.latitude && locData.longitude) {
+          const curPos = lotPin.getLatLng();
+          const targetRad = Number(locData.radius_km || 3.0);
+          if (
+            Math.abs(curPos.lat - locData.latitude) > 0.0001 ||
+            Math.abs(curPos.lng - locData.longitude) > 0.0001
+          ) {
+            lotPin.setLatLng([locData.latitude, locData.longitude]);
+            lotCircle.setLatLng([locData.latitude, locData.longitude]);
+            ticketMap.setView([locData.latitude, locData.longitude]);
+          }
+          if (Math.abs(lastSyncedRadius - targetRad) > 0.01) {
+            lastSyncedRadius = targetRad;
+            lotCircle.setRadius(targetRad * 1000);
+            lotPin.setPopupContent(
+              `<b>ParkWise Lot Location</b><br>${targetRad.toFixed(1)} km Forecast Radius`,
+            );
+            if (
+              ticketMapStatus &&
+              ticketMapStatus.textContent.includes("Synced")
+            ) {
+              ticketMapStatus.textContent = `Synced with Lot Location (${targetRad.toFixed(1)}km Radius)`;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // silent
+    }
+  }
+
   // ── Live polling ──────────────────────────────────────────────────────────
   fetchStatus();
   setInterval(fetchStatus, 3000);
+  setInterval(syncDemoLotLocation, 3000);
 
   async function loadKpis() {
     try {
@@ -330,7 +445,7 @@ document.addEventListener("DOMContentLoaded", () => {
           showToast(`! ${data.error || "Unable to enter lot."}`, true);
         } else {
           showToast(
-            `✓ Car entered! Assigned Slot <strong>${data.slotId}</strong> (Floor ${data.floor}) — Ticket #<strong>${data.ticketId}</strong>`,
+            `✓ Car successfully entered! <strong>Assigned Slot ${data.slotId} (Floor ${data.floor})</strong> — Ticket #<strong>${data.ticketId}</strong>`,
           );
 
           // Clear search to show the newly parked ticket right away
@@ -381,6 +496,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (coTicketId) coTicketId.textContent = "#" + ticketId;
     if (coSlotId) coSlotId.textContent = slotId;
     if (coFloor) coFloor.textContent = floor;
+    if (coReceiptSlot) coReceiptSlot.textContent = slotId;
+    if (coReceiptFloor) coReceiptFloor.textContent = floor;
     if (coEntryTime)
       coEntryTime.textContent = new Date(entryTime).toLocaleString();
 

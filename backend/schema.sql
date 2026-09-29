@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS reports (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS report_slots (
+    report_id INTEGER NOT NULL,
+    slot_id INTEGER NOT NULL,
+    PRIMARY KEY (report_id, slot_id),
+    FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE,
+    FOREIGN KEY (slot_id) REFERENCES slots(id)
+);
+
 CREATE TABLE IF NOT EXISTS forecast_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nature TEXT NOT NULL,
@@ -49,5 +57,15 @@ CREATE TABLE IF NOT EXISTS demand_forecasts (
     latitude REAL,
     longitude REAL,
     location TEXT,
+    source TEXT NOT NULL DEFAULT 'manual',
+    external_id TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS lot_location (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    radius_km REAL NOT NULL DEFAULT 3.0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
