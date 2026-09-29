@@ -11,6 +11,9 @@ const pool = new Pool({
 const COMPAT_SQL = `
 CREATE OR REPLACE FUNCTION date(val text) RETURNS date AS $$
 BEGIN
+  IF val = 'now' THEN
+    RETURN (NOW() AT TIME ZONE 'Asia/Manila')::date;
+  END IF;
   RETURN SUBSTRING(val FROM 1 FOR 10)::date;
 EXCEPTION WHEN OTHERS THEN
   RETURN NULL;
@@ -19,22 +22,44 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION date(val text, modifier text) RETURNS text AS $$
 BEGIN
-  IF modifier LIKE '-%day%' THEN
-    RETURN TO_CHAR((SUBSTRING(val FROM 1 FOR 10)::date - INTERVAL '1 day'), 'YYYY-MM-DD');
+  IF val = 'now' THEN
+    IF modifier LIKE '-%day%' THEN
+      RETURN TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila' - INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSIF modifier LIKE '+%day%' THEN
+      RETURN TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila' + INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSE
+      RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD');
+    END IF;
   ELSE
-    RETURN SUBSTRING(val FROM 1 FOR 10);
+    IF modifier LIKE '-%day%' THEN
+      RETURN TO_CHAR((SUBSTRING(val FROM 1 FOR 10)::date - INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSIF modifier LIKE '+%day%' THEN
+      RETURN TO_CHAR((SUBSTRING(val FROM 1 FOR 10)::date + INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSE
+      RETURN SUBSTRING(val FROM 1 FOR 10);
+    END IF;
   END IF;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION date(val text, modifier text, tz text) RETURNS text AS $$
 BEGIN
-  IF val = 'now' AND modifier LIKE '-%day%' THEN
-    RETURN TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila' - INTERVAL '1 day'), 'YYYY-MM-DD');
-  ELSIF val = 'now' THEN
-    RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD');
+  IF val = 'now' THEN
+    IF modifier LIKE '-%day%' THEN
+      RETURN TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila' - INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSIF modifier LIKE '+%day%' THEN
+      RETURN TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila' + INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSE
+      RETURN TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD');
+    END IF;
   ELSE
-    RETURN SUBSTRING(val FROM 1 FOR 10);
+    IF modifier LIKE '-%day%' THEN
+      RETURN TO_CHAR((SUBSTRING(val FROM 1 FOR 10)::date - INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSIF modifier LIKE '+%day%' THEN
+      RETURN TO_CHAR((SUBSTRING(val FROM 1 FOR 10)::date + INTERVAL '1 day'), 'YYYY-MM-DD');
+    ELSE
+      RETURN SUBSTRING(val FROM 1 FOR 10);
+    END IF;
   END IF;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
