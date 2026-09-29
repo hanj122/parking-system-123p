@@ -71,5 +71,165 @@
   >
     <div id="root"></div>
     <script type="module" crossorigin src="/assets/index-tbUKYf1H.js"></script>
+    <script>
+      (function () {
+        var SIM_TEXT = 'Test how dynamic pricing rules evaluate for any scenario';
+
+        // Motorcycle pricing (edit to match your real rates)
+        var MOTO = { baseHours: 2, baseFee: 30, extraPerHour: 10 };
+        var PEAK_MULT = 1.5;
+        var OVERNIGHT_FEE = 300;
+        var TOW_HOURS = 24;
+
+        window.selectedVehicleType = 'car';
+
+        // Find the element whose OWN text node is the subtitle
+        function findByOwnText(root, matcher) {
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          var n;
+          while ((n = walker.nextNode())) {
+            if (matcher(n.nodeValue.trim())) return n.parentElement;
+          }
+          return null;
+        }
+
+        function styleButtons() {
+          document.querySelectorAll('.pw-veh-btn').forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-type') === window.selectedVehicleType);
+          });
+        }
+
+        // Make React recompute its own output (used when switching back to Car)
+        function pokeReact() {
+          var slider = document.querySelector('input[type="range"]');
+          if (!slider) return;
+          var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          var v = Number(slider.value);
+          var alt = v >= Number(slider.max) ? v - 1 : v + 1;
+          setter.call(slider, String(alt));
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+          setter.call(slider, String(v));
+          slider.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function buildToggle() {
+          var CAR = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>';
+          var BIKE = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>';
+          var wrap = document.createElement('div');
+          wrap.id = 'injectedVehicleToggle';
+          wrap.style.cssText = 'margin:16px 0 8px;';
+          wrap.innerHTML =
+            '<style>' +
+              '#injectedVehicleToggle .pw-label{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#6b7280;margin-bottom:8px;}' +
+              '#injectedVehicleToggle .pw-seg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:4px;border-radius:12px;background:#f3f4f6;}' +
+              '#injectedVehicleToggle .pw-veh-btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:#6b7280;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s,color .15s;}' +
+              '#injectedVehicleToggle .pw-veh-btn:hover{color:#111827;}' +
+              '#injectedVehicleToggle .pw-veh-btn.active{background:#18181b;color:#fff;}' +
+              'html.dark #injectedVehicleToggle .pw-seg{background:#27272a;}' +
+              'html.dark #injectedVehicleToggle .pw-veh-btn{color:#a1a1aa;}' +
+              'html.dark #injectedVehicleToggle .pw-veh-btn.active{background:#fafafa;color:#18181b;}' +
+            '</style>' +
+            '<div class="pw-label">Vehicle Type</div>' +
+            '<div class="pw-seg">' +
+              '<button type="button" data-type="car" class="pw-veh-btn">' + CAR + '<span>Car (₱50 / 3h)</span></button>' +
+              '<button type="button" data-type="motorcycle" class="pw-veh-btn">' + BIKE + '<span>Motorcycle (₱30 / 2h)</span></button>' +
+            '</div>';
+          wrap.addEventListener('click', function (e) {
+            var btn = e.target.closest('.pw-veh-btn');
+            if (!btn) return;
+            var prev = window.selectedVehicleType;
+            window.selectedVehicleType = btn.getAttribute('data-type');
+            styleButtons();
+            if (prev === 'motorcycle' && window.selectedVehicleType === 'car') pokeReact();
+          });
+          return wrap;
+        }
+
+        function injectToggle() {
+          var existing = document.getElementById('injectedVehicleToggle');
+
+          // Only live on the Pricing page
+          if (!/pricing/i.test(location.hash)) {
+            if (existing) existing.remove();
+            return;
+          }
+          if (existing && document.body.contains(existing)) return;
+
+          var sub = findByOwnText(document.getElementById('root') || document.body, function (t) {
+            return t === SIM_TEXT;
+          });
+          if (!sub) return;
+      
+          var el = sub, hops = 0;
+          while (el && !el.nextElementSibling && hops < 6) {
+            el = el.parentElement;
+            hops++;
+          }
+          var toggle = buildToggle();
+          if (el && el.nextElementSibling) {
+            el.parentElement.insertBefore(toggle, el.nextElementSibling);
+          } else {
+            //  put it right under the subtitles container
+            sub.parentElement.appendChild(toggle);
+          }
+          styleButtons();
+        }
+
+        // Overwrite the fee output while Motorcycle is selected
+        function applyMotorcycleFee() {
+          if (window.selectedVehicleType !== 'motorcycle') return;
+          var slider = document.querySelector('input[type="range"]');
+          var boxes = document.querySelectorAll('input[type="checkbox"]');
+          if (!slider) return;
+
+          var label = findByOwnText(document.body, function (t) {
+            return /^calculated fee output$/i.test(t);
+          });
+          if (!label) return;
+
+          var card = label.parentElement;
+          var priceEl = null, hops = 0;
+          while (card && !priceEl && hops < 5) {
+            var els = card.querySelectorAll('*');
+            for (var i = 0; i < els.length; i++) {
+              if (els[i].children.length === 0 && /^₱[\d,]+(\.\d{2})?$/.test(els[i].textContent.trim())) {
+                priceEl = els[i];
+                break;
+              }
+            }
+            if (!priceEl) card = card.parentElement;
+            hops++;
+          }
+          if (!priceEl) return;
+
+          var hours = Number(slider.value);
+          var peak = boxes[0] && boxes[0].checked;
+          var overnight = boxes[1] && boxes[1].checked;
+
+          var extra = Math.max(0, hours - MOTO.baseHours);
+          var fee = MOTO.baseFee + extra * MOTO.extraPerHour;
+          if (peak) fee *= PEAK_MULT;
+          if (overnight) fee += OVERNIGHT_FEE;
+          var towed = hours >= TOW_HOURS;
+          if (towed) fee = 0;
+
+          var text = '₱' + fee.toFixed(2);
+          if (priceEl.textContent !== text) priceEl.textContent = text;
+
+          var detail = findByOwnText(card, function (t) { return /^base fee/i.test(t); });
+          if (detail) {
+            var d = towed
+              ? 'Towed / lot impounded (motorcycle)'
+              : 'Motorcycle: base ₱' + MOTO.baseFee + ' + ' + extra + ' extra hours @ ₱' + MOTO.extraPerHour + '/hr';
+            if (detail.textContent !== d) detail.textContent = d;
+          }
+        }
+
+        setInterval(function () {
+          injectToggle();
+          applyMotorcycleFee();
+        }, 300);
+      })();
+    </script>
   </body>
 </html>
