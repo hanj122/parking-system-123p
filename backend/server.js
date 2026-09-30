@@ -1648,13 +1648,6 @@ app.post("/api/reports", (req, res) => {
 
   const validatedSlotIds = Array.from(new Set(rawSlots)).sort((a, b) => a - b);
 
-  if (validatedSlotIds.length === 0) {
-    return res.status(400).json({
-      error:
-        "Affected slot is required. Please specify a slot number or range between 100 and 399 (e.g. 105 or 101-105).",
-    });
-  }
-
   // Automatically determine floor from first slot if not explicitly provided
   if (!normalizedFloor && validatedSlotIds.length > 0) {
     normalizedFloor = Math.floor(validatedSlotIds[0] / 100);
