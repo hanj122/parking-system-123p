@@ -1,4 +1,11 @@
 node_modules/
+.env
+.env.local
+.env.*
+*.sqlite
+*.sqlite-journal
+backend/database.sqlite
+
 # -------------------------------------------------------------------
 # AI Agent Configuration
 # -------------------------------------------------------------------
@@ -9,8 +16,6 @@ node_modules/
 .agent/*_history
 .agent/*.log
 .agent/local_config.json
-.env
-.env.local
 # BUT explicitly allow shared team instructions and rules
 !.agent/rules/
 !.agent/instructions.md
