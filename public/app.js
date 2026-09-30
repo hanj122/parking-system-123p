@@ -306,8 +306,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/reports");
       if (!res.ok) throw new Error("HTTP " + res.status);
 
-      const raw = await res.json();
-      const reports = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.reports) ? raw.reports : []);
+      const reports = await res.json();
       const reportsList = document.getElementById("reports-list");
 
       if (!reportsList) return;
