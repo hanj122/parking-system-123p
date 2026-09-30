@@ -1,10 +1,10 @@
+const path = require("path");
 try {
-  require("dotenv").config();
+  require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 } catch (e) {}
 
 const { Pool } = require("pg");
 const fs = require("fs");
-const path = require("path");
 
 const connectionString = process.env.DATABASE_URL;
 let sslConfig = false;
@@ -22,7 +22,7 @@ if (connectionString) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: sslConfig,
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 3000,
 });
 
 const COMPAT_SQL = `
@@ -93,6 +93,7 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 `;
 
 let initPromise = null;
+let connectionFailed = false;
 
 async function initDatabase() {
   if (!process.env.DATABASE_URL) {
@@ -210,6 +211,7 @@ async function initDatabase() {
       // ignore
     }
   } catch (err) {
+    connectionFailed = true;
     console.error("❌ Database initialization error:", err.message || err);
     if (err.code === "ETIMEDOUT" || (err.message && err.message.includes("timeout"))) {
       console.warn("⚠️ Supabase connection timed out. If running locally, check if port 5432/6543 is blocked by your local firewall or ISP.");
@@ -265,6 +267,9 @@ const db = {
         await initPromise;
       } catch (e) {}
     }
+    if (connectionFailed) {
+      return callback ? callback(new Error("Supabase connection offline")) : null;
+    }
     const query = formatSql(sql);
     pool.query(query, params || [], (err, res) => {
       if (err) return callback ? callback(err) : null;
@@ -289,6 +294,9 @@ const db = {
         await initPromise;
       } catch (e) {}
     }
+    if (connectionFailed) {
+      return callback ? callback(new Error("Supabase connection offline")) : null;
+    }
     const query = formatSql(sql);
     pool.query(query, params || [], (err, res) => {
       if (err) return callback ? callback(err) : null;
@@ -312,6 +320,9 @@ const db = {
       try {
         await initPromise;
       } catch (e) {}
+    }
+    if (connectionFailed) {
+      return callback ? callback(new Error("Supabase connection offline")) : null;
     }
     let query = formatSql(sql);
 
