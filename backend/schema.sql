@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS demand_forecasts (
     location TEXT,
     source TEXT NOT NULL DEFAULT 'manual',
     external_id TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 );
 
 CREATE TABLE IF NOT EXISTS lot_location (
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS lot_location (
     latitude REAL NOT NULL,
     longitude REAL NOT NULL,
     radius_km REAL NOT NULL DEFAULT 3.0,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT NOT NULL DEFAULT TO_CHAR(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
 );
 
 -- Performance Indexes for Analytics & Dashboard Queries

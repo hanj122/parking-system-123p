@@ -22,6 +22,7 @@ if (connectionString) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: sslConfig,
+  connectionTimeoutMillis: 10000,
 });
 
 const COMPAT_SQL = `
@@ -209,7 +210,11 @@ async function initDatabase() {
       // ignore
     }
   } catch (err) {
-    console.error("❌ Database initialization error:", err.message);
+    console.error("❌ Database initialization error:", err.message || err);
+    if (err.code === "ETIMEDOUT" || (err.message && err.message.includes("timeout"))) {
+      console.warn("⚠️ Supabase connection timed out. If running locally, check if port 5432/6543 is blocked by your local firewall or ISP.");
+      console.warn("   On Render/cloud deployment, connections to Supabase port 5432 succeed normally.");
+    }
   } finally {
     if (client) client.release();
   }
