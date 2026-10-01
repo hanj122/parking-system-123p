@@ -1,0 +1,662 @@
+/**
+ * Seed script for ParkWise demo database.
+ * Resets tickets and reports, restoring a clean sequential dataset.
+ */
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+
+const dbPath = path.join(__dirname, 'database.sqlite');
+const db = new sqlite3.Database(dbPath);
+
+const ticketsData = [
+  {
+    slot_id: 120,
+    vehicle_type: 'car',
+    brand: 'Toyota',
+    color: 'Silver',
+    year: 2022,
+    plate_number: 'NBD 4812',
+    mv_file_number: null,
+    entry_time: '2026-09-26T08:30:00.000Z',
+    exit_time: '2026-09-26T10:45:00.000Z',
+    status: 'completed',
+    fee: 50.0,
+    amount_received: 100.0,
+    change_given: 50.0,
+    change_breakdown: JSON.stringify({ 50: 1 }),
+    map_latitude: 14.5547,
+    map_longitude: 121.0244,
+  },
+  {
+    slot_id: 100,
+    vehicle_type: 'motorcycle',
+    brand: 'Yamaha',
+    color: 'Matte Blue',
+    year: 2023,
+    plate_number: 'MC 2049',
+    mv_file_number: null,
+    entry_time: '2026-09-26T09:00:00.000Z',
+    exit_time: '2026-09-26T10:30:00.000Z',
+    status: 'completed',
+    fee: 30.0,
+    amount_received: 50.0,
+    change_given: 20.0,
+    change_breakdown: JSON.stringify({ 20: 1 }),
+    map_latitude: 14.5839,
+    map_longitude: 121.0562,
+  },
+  {
+    slot_id: 205,
+    vehicle_type: 'car',
+    brand: 'Honda',
+    color: 'Crystal Black',
+    year: 2021,
+    plate_number: 'CAR 8821',
+    mv_file_number: null,
+    entry_time: '2026-09-26T10:15:00.000Z',
+    exit_time: '2026-09-26T14:15:00.000Z',
+    status: 'completed',
+    fee: 70.0,
+    amount_received: 100.0,
+    change_given: 30.0,
+    change_breakdown: JSON.stringify({ 20: 1, 10: 1 }),
+    map_latitude: 14.5312,
+    map_longitude: 120.9823,
+  },
+  {
+    slot_id: 310,
+    vehicle_type: 'car',
+    brand: 'Mitsubishi',
+    color: 'Titanium Gray',
+    year: 2024,
+    plate_number: 'ABC 5678',
+    mv_file_number: null,
+    entry_time: '2026-09-26T11:00:00.000Z',
+    exit_time: '2026-09-26T15:30:00.000Z',
+    status: 'completed',
+    fee: 90.0,
+    amount_received: 100.0,
+    change_given: 10.0,
+    change_breakdown: JSON.stringify({ 10: 1 }),
+    map_latitude: 14.6219,
+    map_longitude: 121.0531,
+  },
+  {
+    slot_id: 105,
+    vehicle_type: 'motorcycle',
+    brand: 'Honda',
+    color: 'Pearl White',
+    year: 2023,
+    plate_number: null,
+    mv_file_number: '1301-000084920',
+    entry_time: '2026-09-26T13:00:00.000Z',
+    exit_time: '2026-09-26T15:45:00.000Z',
+    status: 'completed',
+    fee: 40.0,
+    amount_received: 50.0,
+    change_given: 10.0,
+    change_breakdown: JSON.stringify({ 10: 1 }),
+    map_latitude: 14.5842,
+    map_longitude: 121.0573,
+  },
+  {
+    slot_id: 125,
+    vehicle_type: 'car',
+    brand: 'Ford',
+    color: 'Oxford White',
+    year: 2022,
+    plate_number: 'XYZ 1122',
+    mv_file_number: null,
+    entry_time: '2026-09-26T14:00:00.000Z',
+    exit_time: '2026-09-26T17:30:00.000Z',
+    status: 'completed',
+    fee: 70.0,
+    amount_received: 100.0,
+    change_given: 30.0,
+    change_breakdown: JSON.stringify({ 20: 1, 10: 1 }),
+    map_latitude: 14.5516,
+    map_longitude: 120.9877,
+  },
+  {
+    slot_id: 215,
+    vehicle_type: 'car',
+    brand: 'Nissan',
+    color: 'Brilliant Silver',
+    year: 2023,
+    plate_number: 'NDB 9031',
+    mv_file_number: null,
+    entry_time: '2026-09-27T01:30:00.000Z',
+    exit_time: '2026-09-27T03:45:00.000Z',
+    status: 'completed',
+    fee: 50.0,
+    amount_received: 100.0,
+    change_given: 50.0,
+    change_breakdown: JSON.stringify({ 50: 1 }),
+    map_latitude: 14.5772,
+    map_longitude: 121.0667,
+  },
+  {
+    slot_id: 102,
+    vehicle_type: 'motorcycle',
+    brand: 'Kawasaki',
+    color: 'Lime Green',
+    year: 2024,
+    plate_number: 'MC 7733',
+    mv_file_number: null,
+    entry_time: '2026-09-27T02:00:00.000Z',
+    exit_time: '2026-09-27T04:20:00.000Z',
+    status: 'completed',
+    fee: 40.0,
+    amount_received: 50.0,
+    change_given: 10.0,
+    change_breakdown: JSON.stringify({ 10: 1 }),
+    map_latitude: 14.5583,
+    map_longitude: 120.9897,
+  },
+  {
+    slot_id: 305,
+    vehicle_type: 'car',
+    brand: 'Hyundai',
+    color: 'Polar White',
+    year: 2022,
+    plate_number: 'NCT 3456',
+    mv_file_number: null,
+    entry_time: '2026-09-27T03:00:00.000Z',
+    exit_time: '2026-09-27T05:00:00.000Z',
+    status: 'completed',
+    fee: 50.0,
+    amount_received: 500.0,
+    change_given: 450.0,
+    change_breakdown: JSON.stringify({ 100: 4, 50: 1 }),
+    map_latitude: 14.5323,
+    map_longitude: 120.9858,
+  },
+  {
+    slot_id: 100,
+    vehicle_type: 'motorcycle',
+    brand: 'Yamaha',
+    color: 'Racing Blue',
+    year: 2024,
+    plate_number: 'MC 8899',
+    mv_file_number: null,
+    entry_time: '2026-09-27T06:15:00.000Z',
+    exit_time: null,
+    status: 'active',
+    fee: null,
+    amount_received: null,
+    change_given: null,
+    change_breakdown: null,
+    map_latitude: 14.5547,
+    map_longitude: 121.0244,
+  },
+  {
+    slot_id: 100,
+    vehicle_type: 'motorcycle',
+    brand: 'Honda',
+    color: 'Candy Red',
+    year: 2023,
+    plate_number: 'MC 4422',
+    mv_file_number: null,
+    entry_time: '2026-09-27T06:45:00.000Z',
+    exit_time: null,
+    status: 'active',
+    fee: null,
+    amount_received: null,
+    change_given: null,
+    change_breakdown: null,
+    map_latitude: 14.5842,
+    map_longitude: 121.0573,
+  },
+  {
+    slot_id: 101,
+    vehicle_type: 'motorcycle',
+    brand: 'Suzuki',
+    color: 'Metallic Gray',
+    year: 2024,
+    plate_number: null,
+    mv_file_number: '1301-00049281',
+    entry_time: '2026-09-27T07:10:00.000Z',
+    exit_time: null,
+    status: 'active',
+    fee: null,
+    amount_received: null,
+    change_given: null,
+    change_breakdown: null,
+    map_latitude: 14.6219,
+    map_longitude: 121.0531,
+  },
+  {
+    slot_id: 130,
+    vehicle_type: 'car',
+    brand: 'Toyota',
+    color: 'Silver Metallic',
+    year: 2023,
+    plate_number: 'ABC 2024',
+    mv_file_number: null,
+    entry_time: '2026-09-27T07:30:00.000Z',
+    exit_time: null,
+    status: 'active',
+    fee: null,
+    amount_received: null,
+    change_given: null,
+    change_breakdown: null,
+    map_latitude: 14.5312,
+    map_longitude: 120.9823,
+  },
+  {
+    slot_id: 220,
+    vehicle_type: 'car',
+    brand: 'Mazda',
+    color: 'Soul Red Crystal',
+    year: 2024,
+    plate_number: 'NBD 7788',
+    mv_file_number: null,
+    entry_time: '2026-09-27T08:00:00.000Z',
+    exit_time: null,
+    status: 'active',
+    fee: null,
+    amount_received: null,
+    change_given: null,
+    change_breakdown: null,
+    map_latitude: 14.5772,
+    map_longitude: 121.0667,
+  },
+  {
+    slot_id: 320,
+    vehicle_type: 'car',
+    brand: 'Kia',
+    color: 'Aurora Black',
+    year: 2023,
+    plate_number: 'XYZ 9900',
+    mv_file_number: null,
+    entry_time: '2026-09-27T08:15:00.000Z',
+    exit_time: null,
+    status: 'active',
+    fee: null,
+    amount_received: null,
+    change_given: null,
+    change_breakdown: null,
+    map_latitude: 14.5516,
+    map_longitude: 120.9877,
+  },
+];
+
+const reportsData = [
+  // Arrival events for tickets 1 to 15
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 1,
+    slot_id: 120,
+    ticket_id: 1,
+    source: 'system',
+    created_at: '2026-09-26 08:30:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Motorcycle entered lot',
+    floor: 1,
+    slot_id: 100,
+    ticket_id: 2,
+    source: 'system',
+    created_at: '2026-09-26 09:00:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 2,
+    slot_id: 205,
+    ticket_id: 3,
+    source: 'system',
+    created_at: '2026-09-26 10:15:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 1,
+    slot_id: 100,
+    ticket_id: 2,
+    source: 'system',
+    created_at: '2026-09-26 10:30:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 1,
+    slot_id: 120,
+    ticket_id: 1,
+    source: 'system',
+    created_at: '2026-09-26 10:45:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 3,
+    slot_id: 310,
+    ticket_id: 4,
+    source: 'system',
+    created_at: '2026-09-26 11:00:00',
+  },
+  {
+    type: 'Maintenance',
+    severity: 'info',
+    message: 'Quarterly barrier gate inspection completed on Floor 1',
+    floor: 1,
+    slot_id: null,
+    ticket_id: null,
+    source: 'admin',
+    created_at: '2026-09-26 12:00:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Motorcycle entered lot',
+    floor: 1,
+    slot_id: 105,
+    ticket_id: 5,
+    source: 'system',
+    created_at: '2026-09-26 13:00:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 1,
+    slot_id: 125,
+    ticket_id: 6,
+    source: 'system',
+    created_at: '2026-09-26 14:00:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 2,
+    slot_id: 205,
+    ticket_id: 3,
+    source: 'system',
+    created_at: '2026-09-26 14:15:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 3,
+    slot_id: 310,
+    ticket_id: 4,
+    source: 'system',
+    created_at: '2026-09-26 15:30:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 1,
+    slot_id: 105,
+    ticket_id: 5,
+    source: 'system',
+    created_at: '2026-09-26 15:45:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 1,
+    slot_id: 125,
+    ticket_id: 6,
+    source: 'system',
+    created_at: '2026-09-26 17:30:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 2,
+    slot_id: 215,
+    ticket_id: 7,
+    source: 'system',
+    created_at: '2026-09-27 01:30:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Motorcycle entered lot',
+    floor: 1,
+    slot_id: 102,
+    ticket_id: 8,
+    source: 'system',
+    created_at: '2026-09-27 02:00:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 3,
+    slot_id: 305,
+    ticket_id: 9,
+    source: 'system',
+    created_at: '2026-09-27 03:00:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 2,
+    slot_id: 215,
+    ticket_id: 7,
+    source: 'system',
+    created_at: '2026-09-27 03:45:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 1,
+    slot_id: 102,
+    ticket_id: 8,
+    source: 'system',
+    created_at: '2026-09-27 04:20:00',
+  },
+  {
+    type: 'payment_completed',
+    severity: 'info',
+    message: 'Payment completed successfully',
+    floor: 3,
+    slot_id: 305,
+    ticket_id: 9,
+    source: 'system',
+    created_at: '2026-09-27 05:00:00',
+  },
+  {
+    type: 'Safety',
+    severity: 'info',
+    message: 'Emergency exit pathway clear on Floor 2',
+    floor: 2,
+    slot_id: null,
+    ticket_id: null,
+    source: 'admin',
+    created_at: '2026-09-27 05:30:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Motorcycle entered lot',
+    floor: 1,
+    slot_id: 100,
+    ticket_id: 10,
+    source: 'system',
+    created_at: '2026-09-27 06:15:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Motorcycle entered lot',
+    floor: 1,
+    slot_id: 100,
+    ticket_id: 11,
+    source: 'system',
+    created_at: '2026-09-27 06:45:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Motorcycle entered lot',
+    floor: 1,
+    slot_id: 101,
+    ticket_id: 12,
+    source: 'system',
+    created_at: '2026-09-27 07:10:00',
+  },
+  {
+    type: 'payment_issue',
+    severity: 'warning',
+    message: 'Invalid cash amount rejected: ₱40',
+    floor: 1,
+    slot_id: 101,
+    ticket_id: 12,
+    source: 'system',
+    created_at: '2026-09-27 07:15:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 1,
+    slot_id: 130,
+    ticket_id: 13,
+    source: 'system',
+    created_at: '2026-09-27 07:30:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 2,
+    slot_id: 220,
+    ticket_id: 14,
+    source: 'system',
+    created_at: '2026-09-27 08:00:00',
+  },
+  {
+    type: 'payment_issue',
+    severity: 'warning',
+    message: 'Invalid cash amount rejected: ₱1200',
+    floor: 2,
+    slot_id: 220,
+    ticket_id: 14,
+    source: 'system',
+    created_at: '2026-09-27 08:05:00',
+  },
+  {
+    type: 'vehicle_entered',
+    severity: 'info',
+    message: 'Car entered lot',
+    floor: 3,
+    slot_id: 320,
+    ticket_id: 15,
+    source: 'system',
+    created_at: '2026-09-27 08:15:00',
+  },
+];
+
+db.serialize(() => {
+  console.log('Purging existing tickets and reports...');
+  db.run('DELETE FROM tickets');
+  db.run('DELETE FROM reports');
+  db.run("DELETE FROM sqlite_sequence WHERE name IN ('tickets', 'reports')");
+  db.run("UPDATE slots SET status = 'available'");
+
+  console.log('Inserting sequential seed tickets (1 to 15)...');
+  const ticketStmt = db.prepare(`
+    INSERT INTO tickets (
+      slot_id, vehicle_type, brand, color, year, plate_number, mv_file_number,
+      entry_time, exit_time, status, fee, amount_received, change_given,
+      change_breakdown, map_latitude, map_longitude
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const t of ticketsData) {
+    ticketStmt.run(
+      t.slot_id,
+      t.vehicle_type,
+      t.brand,
+      t.color,
+      t.year,
+      t.plate_number,
+      t.mv_file_number,
+      t.entry_time,
+      t.exit_time,
+      t.status,
+      t.fee,
+      t.amount_received,
+      t.change_given,
+      t.change_breakdown,
+      t.map_latitude,
+      t.map_longitude
+    );
+  }
+  ticketStmt.finalize();
+
+  console.log('Inserting reports...');
+  const reportStmt = db.prepare(`
+    INSERT INTO reports (
+      type, severity, message, floor, slot_id, ticket_id, source, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const r of reportsData) {
+    reportStmt.run(
+      r.type,
+      r.severity,
+      r.message,
+      r.floor,
+      r.slot_id,
+      r.ticket_id,
+      r.source,
+      r.created_at
+    );
+  }
+  reportStmt.finalize();
+
+  console.log('Synchronizing slot statuses...');
+  // Standard car slots: occupied if at least 1 active ticket
+  db.run(`
+    UPDATE slots
+    SET status = CASE
+      WHEN EXISTS (
+        SELECT 1 FROM tickets t
+        WHERE t.slot_id = slots.id AND t.status = 'active'
+      ) THEN 'occupied'
+      ELSE 'available'
+    END
+    WHERE NOT (floor = 1 AND id BETWEEN 100 AND 119)
+  `);
+
+  // Motorcycle reserved slots (100-119 on Floor 1): occupied if >= 6 active tickets
+  db.run(`
+    UPDATE slots
+    SET status = CASE
+      WHEN (
+        SELECT COUNT(*) FROM tickets t
+        WHERE t.slot_id = slots.id
+          AND t.status = 'active'
+          AND t.vehicle_type = 'motorcycle'
+      ) >= 6 THEN 'occupied'
+      ELSE 'available'
+    END
+    WHERE floor = 1 AND id BETWEEN 100 AND 119
+  `, (err) => {
+    if (err) {
+      console.error('Failed to sync slots:', err.message);
+      process.exit(1);
+    }
+    console.log('Seed completed successfully!');
+    db.close();
+  });
+});
